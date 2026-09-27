@@ -1,0 +1,496 @@
+[
+ {
+  "case": "Spectre 25.1 tran psfbin 2.4 GB, 302 sig",
+  "file": "samplegen/out/psfbin_chunked/tran1.tran.tran",
+  "bytes": 2430066748,
+  "n": 1,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.5155450053280219,
+   "read_ms": 31.922014997689985,
+   "total_ms": 32.43756000301801,
+   "signals": 302
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.49583500367589295,
+   "read_ms": 31.779133991221897,
+   "total_ms": 32.27496899489779,
+   "signals": 302
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran psfbin 2.4 GB, 302 sig",
+  "file": "samplegen/out/psfbin_chunked/tran1.tran.tran",
+  "bytes": 2430066748,
+  "n": 10,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.48124499153345823,
+   "read_ms": 112.28396400110796,
+   "total_ms": 112.76520899264142,
+   "signals": 302
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.5582659941865131,
+   "read_ms": 37.30909001023974,
+   "total_ms": 37.867356004426256,
+   "signals": 302
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran psfbin 2.4 GB, 302 sig",
+  "file": "samplegen/out/psfbin_chunked/tran1.tran.tran",
+  "bytes": 2430066748,
+  "n": 302,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.5560760037042201,
+   "read_ms": 2536.075633004657,
+   "total_ms": 2536.631709008361,
+   "signals": 302
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.5932859930908307,
+   "read_ms": 414.31264000129886,
+   "total_ms": 414.9059259943897,
+   "signals": 302
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran PSFXL 411 MB, 102 sig",
+  "file": "samplegen/out/psfxl_long/tran1.tran.tran",
+  "bytes": 411510507,
+  "n": 1,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.6830070051364601,
+   "read_ms": 19.573209996451624,
+   "total_ms": 20.256217001588084,
+   "signals": 102
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.6522470066556707,
+   "read_ms": 19.851101998938248,
+   "total_ms": 20.50334900559392,
+   "signals": 102
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran PSFXL 411 MB, 102 sig",
+  "file": "samplegen/out/psfxl_long/tran1.tran.tran",
+  "bytes": 411510507,
+  "n": 10,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.6555059953825548,
+   "read_ms": 87.2919100074796,
+   "total_ms": 87.94741600286216,
+   "signals": 102
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.6854170060250908,
+   "read_ms": 37.279249998391606,
+   "total_ms": 37.9646670044167,
+   "signals": 102
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran PSFXL 411 MB, 102 sig",
+  "file": "samplegen/out/psfxl_long/tran1.tran.tran",
+  "bytes": 411510507,
+  "n": 102,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.7556569908047095,
+   "read_ms": 743.3521220082184,
+   "total_ms": 744.1077789990231,
+   "signals": 102
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.6684469990432262,
+   "read_ms": 240.54817999422085,
+   "total_ms": 241.21662699326407,
+   "signals": 102
+  }
+ },
+ {
+  "case": "Spectre 25.1 tran psfbin 0.3 MB, 11 sig (swept leaf)",
+  "file": "samplegen/out/sweep_psfbin/swp_t-001_swp_r-001_tran1.tran.tran",
+  "bytes": 323644,
+  "n": 11,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.3651430015452206,
+   "read_ms": 2.2327029873849824,
+   "total_ms": 2.597845988930203,
+   "signals": 12
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.3772939962800592,
+   "read_ms": 2.192672007367946,
+   "total_ms": 2.5699660036480054,
+   "signals": 12
+  }
+ },
+ {
+  "case": "Spectre 25.1 ac psfbin 5.4 MB complex, 22 sig",
+  "file": "samplegen/out/psfxl_ac/ac1.ac",
+  "bytes": 5444152,
+  "n": 22,
+  "libpsf": {
+   "open_ms": 0.6864669994683936,
+   "read_ms": 14.940791996195912,
+   "total_ms": 15.627258995664306,
+   "signals": 22
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.3708039876073599,
+   "read_ms": 7.344665005803108,
+   "total_ms": 7.715468993410468,
+   "signals": 22
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.3647740086307749,
+   "read_ms": 4.816859000129625,
+   "total_ms": 5.1816330087604,
+   "signals": 22
+  }
+ },
+ {
+  "case": "Spectre 25.1 ac psfbinf (float32) 3.6 MB, 22 sig",
+  "file": "samplegen/out/psfbinf_ac/ac1.ac",
+  "bytes": 3643972,
+  "n": 22,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: Unknown type 9"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.3920540038961917,
+   "read_ms": 6.735798000590876,
+   "total_ms": 7.1278520044870675,
+   "signals": 22
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.3629040002124384,
+   "read_ms": 4.352814008598216,
+   "total_ms": 4.715718008810654,
+   "signals": 22
+  }
+ },
+ {
+  "case": "Spectre 25.1 ac psfascii 12 MB, 22 sig",
+  "file": "samplegen/out/psfascii_ac/ac1.ac",
+  "bytes": 11873041,
+  "n": 22,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.39915399975143373,
+   "read_ms": 138.9710160001414,
+   "total_ms": 139.37016999989282,
+   "signals": 22
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.41342499025631696,
+   "read_ms": 138.8144340016879,
+   "total_ms": 139.22785899194423,
+   "signals": 22
+  }
+ },
+ {
+  "case": "Spectre 4.4 tran psfbin 0.8 MB, 32 sig",
+  "file": "testdata/pycircuit/psf/tran.tran",
+  "bytes": 815160,
+  "n": 32,
+  "libpsf": {
+   "open_ms": 0.7957280031405389,
+   "read_ms": 4.043651002575643,
+   "total_ms": 4.839379005716182,
+   "signals": 32
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.3524939966155216,
+   "read_ms": 2.8796289989259094,
+   "total_ms": 3.232122995541431,
+   "signals": 32
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.3403830050956458,
+   "read_ms": 2.8786600014427677,
+   "total_ms": 3.2190430065384135,
+   "signals": 32
+  }
+ },
+ {
+  "case": "Eldo tran psfbin 0.6 MB (1 window), 144 sig",
+  "file": "testdata/pycircuit/psf/timeSweep",
+  "bytes": 606268,
+  "n": 144,
+  "libpsf": {
+   "open_ms": 0.7162370020523667,
+   "read_ms": 2.7525479963514954,
+   "total_ms": 3.468784998403862,
+   "signals": 144
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.42273401049897075,
+   "read_ms": 3.235362994018942,
+   "total_ms": 3.658097004517913,
+   "signals": 144
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.3932840045308694,
+   "read_ms": 3.036210997379385,
+   "total_ms": 3.4294950019102544,
+   "signals": 144
+  }
+ },
+ {
+  "case": "Spectre dc 0.6 MB, 1432 sig",
+  "file": "testdata/pycircuit/psf/dc.dc",
+  "bytes": 575940,
+  "n": 1432,
+  "libpsf": {
+   "open_ms": 2.6783570065163076,
+   "read_ms": 5.095132000860758,
+   "total_ms": 7.773489007377066,
+   "signals": 1432
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 1.0500509961275384,
+   "read_ms": 9.481366010732017,
+   "total_ms": 10.531417006859556,
+   "signals": 1432
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.9795899968594313,
+   "read_ms": 9.539687001961283,
+   "total_ms": 10.519276998820715,
+   "signals": 1432
+  }
+ },
+ {
+  "case": "Spectre pnoise (struct traces), 26 sig",
+  "file": "testdata/pycircuit/psf/pnoise0.pnoise",
+  "bytes": 39700,
+  "n": 26,
+  "libpsf": {
+   "open_ms": 0.7037470059003681,
+   "read_ms": 1.6958979977061972,
+   "total_ms": 2.3996450036065653,
+   "signals": 26
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.5463359993882477,
+   "read_ms": 2.91861999721732,
+   "total_ms": 3.4649559966055676,
+   "signals": 26
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.4651950002880767,
+   "read_ms": 2.906509005697444,
+   "total_ms": 3.371704005985521,
+   "signals": 26
+  }
+ },
+ {
+  "case": "Spectre op info 0.7 MB, 3800 values",
+  "file": "testdata/pycircuit/psf/dcOpInfo.info",
+  "bytes": 671232,
+  "n": 1,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 2.32536401017569,
+   "read_ms": 0.6307859875960276,
+   "total_ms": 2.9561499977717176,
+   "signals": 3800
+  },
+  "polars-psf 12T": {
+   "open_ms": 2.3443839891115203,
+   "read_ms": 0.593415999901481,
+   "total_ms": 2.9377999890130013,
+   "signals": 3800
+  }
+ },
+ {
+  "case": "Spectre op info 0.7 MB, 3800 values",
+  "file": "testdata/pycircuit/psf/dcOpInfo.info",
+  "bytes": 671232,
+  "n": 3800,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 2.311314005055465,
+   "read_ms": 15.485587995499372,
+   "total_ms": 17.796902000554837,
+   "signals": 3800
+  },
+  "polars-psf 12T": {
+   "open_ms": 2.3411040019709617,
+   "read_ms": 15.44673799071461,
+   "total_ms": 17.78784199268557,
+   "signals": 3800
+  }
+ },
+ {
+  "case": "synthetic row-record sweep 643 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_simple.psf",
+  "bytes": 643205056,
+  "n": 1,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.18073199316859245,
+   "read_ms": 27.411608010879718,
+   "total_ms": 27.59234000404831,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.21952200040686876,
+   "read_ms": 27.46551900054328,
+   "total_ms": 27.68504100095015,
+   "signals": 200
+  }
+ },
+ {
+  "case": "synthetic row-record sweep 643 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_simple.psf",
+  "bytes": 643205056,
+  "n": 10,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.17676199786365032,
+   "read_ms": 62.67326700617559,
+   "total_ms": 62.85002900403924,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.1782710023690015,
+   "read_ms": 31.55875099764671,
+   "total_ms": 31.737022000015713,
+   "signals": 200
+  }
+ },
+ {
+  "case": "synthetic row-record sweep 643 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_simple.psf",
+  "bytes": 643205056,
+  "n": 200,
+  "libpsf": {
+   "error": "exit 1: RuntimeError: std::exception"
+  },
+  "polars-psf 1T": {
+   "open_ms": 0.18072199600283056,
+   "read_ms": 813.5473200090928,
+   "total_ms": 813.7280420050956,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.18957200518343598,
+   "read_ms": 180.3054100018926,
+   "total_ms": 180.49498200707603,
+   "signals": 200
+  }
+ },
+ {
+  "case": "synthetic tran windowed 804 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_win.psf",
+  "bytes": 804371336,
+  "n": 1,
+  "libpsf": {
+   "open_ms": 0.2965829917229712,
+   "read_ms": 41.831606009509414,
+   "total_ms": 42.128189001232386,
+   "signals": 200
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.1842319907154888,
+   "read_ms": 12.946921997354366,
+   "total_ms": 13.131153988069855,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.19190199964214116,
+   "read_ms": 12.419296996085905,
+   "total_ms": 12.611198995728046,
+   "signals": 200
+  }
+ },
+ {
+  "case": "synthetic tran windowed 804 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_win.psf",
+  "bytes": 804371336,
+  "n": 10,
+  "libpsf": {
+   "open_ms": 0.2744029916357249,
+   "read_ms": 254.57471300614998,
+   "total_ms": 254.8491159977857,
+   "signals": 200
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.18871099746320397,
+   "read_ms": 46.313942002598196,
+   "total_ms": 46.5026530000614,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.1918620109790936,
+   "read_ms": 15.556747996015474,
+   "total_ms": 15.748610006994568,
+   "signals": 200
+  }
+ },
+ {
+  "case": "synthetic tran windowed 804 MB, 200 sig",
+  "file": "$SYNTH_DIR/big_win.psf",
+  "bytes": 804371336,
+  "n": 200,
+  "libpsf": {
+   "open_ms": 0.2669630048330873,
+   "read_ms": 4039.9484549998306,
+   "total_ms": 4040.2154180046637,
+   "signals": 200
+  },
+  "max_rel_diff": "0.00e+00",
+  "polars-psf 1T": {
+   "open_ms": 0.19368200446479023,
+   "read_ms": 735.9599560004426,
+   "total_ms": 736.1536380049074,
+   "signals": 200
+  },
+  "polars-psf 12T": {
+   "open_ms": 0.18851200002245605,
+   "read_ms": 131.93228300951887,
+   "total_ms": 132.12079500954133,
+   "signals": 200
+  }
+ }
+]

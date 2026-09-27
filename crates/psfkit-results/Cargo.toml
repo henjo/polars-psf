@@ -1,0 +1,12 @@
+[package]
+name = "psfkit-results"
+description = "Spectre/ADE result directories (logFile, runObjFile, nested sweeps, Monte Carlo) for the psf crate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+psfkit.workspace = true
+thiserror.workspace = true

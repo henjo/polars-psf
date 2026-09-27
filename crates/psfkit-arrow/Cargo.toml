@@ -1,0 +1,16 @@
+[package]
+name = "psfkit-arrow"
+description = "Convert PSF simulation data (psf crate) to Apache Arrow arrays"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# arrow dependencies need let-chains (1.88)
+rust-version = "1.88"
+repository.workspace = true
+
+[dependencies]
+psfkit.workspace = true
+arrow-array.workspace = true
+arrow-buffer.workspace = true
+arrow-schema.workspace = true
+arrow-select.workspace = true

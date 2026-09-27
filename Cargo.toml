@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/psfkit", "crates/psfkit-arrow", "crates/psfkit-results", "python"]
+# the Python extension links against libpython; build it with maturin
+default-members = ["crates/psfkit", "crates/psfkit-arrow", "crates/psfkit-results"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+repository = "https://github.com/henjo/polars-psf"
+
+[workspace.dependencies]
+memmap2 = "0.9"
+thiserror = "2"
+rayon = "1"
+libc = "0.2"
+blosc-src = "0.3"
+# arrow must match the version used by pyo3-arrow
+arrow-array = "59"
+arrow-buffer = "59"
+arrow-schema = "59"
+arrow-select = "59"
+pyo3 = "0.29"
+pyo3-arrow = "0.19"
+psfkit = { path = "crates/psfkit", version = "0.1.0" }
+psfkit-arrow = { path = "crates/psfkit-arrow", version = "0.1.0" }
+psfkit-results = { path = "crates/psfkit-results", version = "0.1.0" }

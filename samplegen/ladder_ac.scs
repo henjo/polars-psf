@@ -1,0 +1,45 @@
+simulator lang=spectre
+global 0
+V1 (in 0) vsource type=sine ampl=1 freq=1M mag=1
+R1 (in n1) resistor r=1k
+C1 (n1 0) capacitor c=1p
+R2 (n1 n2) resistor r=1k
+C2 (n2 0) capacitor c=1p
+R3 (n2 n3) resistor r=1k
+C3 (n3 0) capacitor c=1p
+R4 (n3 n4) resistor r=1k
+C4 (n4 0) capacitor c=1p
+R5 (n4 n5) resistor r=1k
+C5 (n5 0) capacitor c=1p
+R6 (n5 n6) resistor r=1k
+C6 (n6 0) capacitor c=1p
+R7 (n6 n7) resistor r=1k
+C7 (n7 0) capacitor c=1p
+R8 (n7 n8) resistor r=1k
+C8 (n8 0) capacitor c=1p
+R9 (n8 n9) resistor r=1k
+C9 (n9 0) capacitor c=1p
+R10 (n9 n10) resistor r=1k
+C10 (n10 0) capacitor c=1p
+R11 (n10 n11) resistor r=1k
+C11 (n11 0) capacitor c=1p
+R12 (n11 n12) resistor r=1k
+C12 (n12 0) capacitor c=1p
+R13 (n12 n13) resistor r=1k
+C13 (n13 0) capacitor c=1p
+R14 (n13 n14) resistor r=1k
+C14 (n14 0) capacitor c=1p
+R15 (n14 n15) resistor r=1k
+C15 (n15 0) capacitor c=1p
+R16 (n15 n16) resistor r=1k
+C16 (n16 0) capacitor c=1p
+R17 (n16 n17) resistor r=1k
+C17 (n17 0) capacitor c=1p
+R18 (n17 n18) resistor r=1k
+C18 (n18 0) capacitor c=1p
+R19 (n18 n19) resistor r=1k
+C19 (n19 0) capacitor c=1p
+R20 (n19 n20) resistor r=1k
+C20 (n20 0) capacitor c=1p
+ac1 ac start=1 stop=10G dec=1000
+tran1 tran stop=10u maxstep=1n

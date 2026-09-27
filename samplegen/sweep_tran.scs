@@ -1,0 +1,41 @@
+simulator lang=spectre
+global 0
+parameters rval=1k cval=1p
+V1 (in 0) vsource type=pulse val0=0 val1=1 period=20n rise=100p fall=100p width=10n mag=1
+R1 (in n1) resistor r=rval
+C1 (n1 0) capacitor c=cval
+R2 (n1 n2) resistor r=rval
+C2 (n2 0) capacitor c=cval
+R3 (n2 n3) resistor r=rval
+C3 (n3 0) capacitor c=cval
+R4 (n3 n4) resistor r=rval
+C4 (n4 0) capacitor c=cval
+R5 (n4 n5) resistor r=rval
+C5 (n5 0) capacitor c=cval
+R6 (n5 n6) resistor r=rval
+C6 (n6 0) capacitor c=cval
+R7 (n6 n7) resistor r=rval
+C7 (n7 0) capacitor c=cval
+R8 (n7 n8) resistor r=rval
+C8 (n8 0) capacitor c=cval
+R9 (n8 n9) resistor r=rval
+C9 (n9 0) capacitor c=cval
+R10 (n9 n10) resistor r=rval
+C10 (n10 0) capacitor c=cval
+
+// outer sweeps around tran + ac: exercises logFile trees, per-leaf PSFXL, differing time axes
+swp_t sweep param=temp values=[-40 27 125] {
+    swp_r sweep param=rval values=[500 1k 2k] {
+        tran1 tran stop=200n maxstep=100p
+        ac1 ac start=1k stop=10G dec=20
+    }
+}
+// Monte Carlo over the same tran: needs a statistics block (process variation on rval)
+statistics {
+    process {
+        vary rval dist=gauss std=50
+    }
+}
+mc1 montecarlo numruns=5 seed=1 variations=process {
+    tran2 tran stop=100n maxstep=100p
+}

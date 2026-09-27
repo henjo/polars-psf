@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "polars-psf"
+description = "Fast reader for Cadence Spectre PSF simulation results (psfbin, psfascii, PSFXL) to Polars"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["polars>=1.0"]
+dynamic = ["version"]
+classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3"]
+
+[project.optional-dependencies]
+test = ["pytest", "numpy"]
+
+[tool.maturin]
+module-name = "polars_psf._polars_psf"
+python-source = "."
+features = []
