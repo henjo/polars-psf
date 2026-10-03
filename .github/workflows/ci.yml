@@ -112,6 +112,7 @@ jobs:
         shell: bash
         run: |
           python python/examples/post_processing.py
+          python python/examples/corner_report.py
           python python/examples/noise_queries.py testdata/pycircuit/psf/pnoise0.pnoise
 
   python-lint:

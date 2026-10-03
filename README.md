@@ -20,76 +20,169 @@ From source (needs a Rust toolchain): `pip install "git+https://github.com/henjo
 
 ## Python
 
+### Quick start (for OCEAN users)
+
+```python
+import polars_psf as pp
+
+r   = pp.open("sim.raw")             # openResults("sim.raw")      a result directory or one PSF file
+ac  = r.ac1                          # selectResult('ac1)
+out = ac.v("out")                    # v("out")                    all corners at once, nothing read yet
+
+out.bandwidth()                      # bandwidth(v("out") 3 "low") one row per corner
+out.db20().value(1e6)                # value(dB20(v("out")) 1M)
+out.leaf(temp=27, rval=1e3)          # leafValue(v("out") "temp" 27 "rval" 1k)
+ac.v("out", temp=27)                 # or narrow the corners up front
+```
+
+A swept result is a *family*: one curve per corner (or Monte Carlo iteration). Every measurement
+works per curve, and the answer is a table with one row per corner:
+
+```
+>>> r.ac1.v("n10").bandwidth()
+┌───────┬────────┬───────────┐
+│ temp  ┆ rval   ┆ bandwidth │
+╞═══════╪════════╪═══════════╡
+│ -40.0 ┆ 500.0  ┆ 6.9899e6  │
+│ -40.0 ┆ 1000.0 ┆ 3.4951e6  │
+│ …     ┆ …      ┆ …         │
+│ 125.0 ┆ 2000.0 ┆ 1.7476e6  │
+└───────┴────────┴───────────┘
+```
+
+A single curve gives a plain number: `r.ac1.v("n10", temp=27, rval=1e3).bandwidth()` → `3495082.18`.
+
+### From OCEAN to polars-psf
+
+| OCEAN | polars-psf | |
+|---|---|---|
+| `openResults("sim.raw")` | `r = pp.open("sim.raw")` | lazy: reads the logFile only |
+| `selectResult('tran1)` | `t = r.tran1` | `r.result("tran1")` for any name |
+| `v("out")`, `i("V1:p")` | `t.v("out")`, `t.i("V1:p")` | |
+| `dB20(w)`, `phase(w)`, `mag(w)` | `w.db20()`, `w.phase()`, `w.mag()` | also `+ - * / **` on complex data |
+| `value(w 1e-9)` | `w.value(1e-9)` | |
+| `ymax(w)`, `xmax(w)` | `w.ymax()`, `w.xmax()` | `xmax` = x at the largest y |
+| `cross(w 0.5 1 "rising")` | `w.cross(0.5, 1, "rising")` | edges count from 1, `-1` = last |
+| `bandwidth(w 3 "low")` | `w.bandwidth(3, "low")` | `"high"`, `"band"` too |
+| `unityGainFreq(w)`, `phaseMargin(w)`, `gainMargin(w)` | `w.unity_gain_frequency()`, `w.phase_margin()`, `w.gain_margin()` | |
+| `riseTime(w ...)`, `slewRate(w ...)` | `w.rise_time()`, `w.slew_rate()` | 10–90 % by default |
+| `overshoot(w ...)`, `settlingTime(w ...)` | `w.overshoot()`, `w.settling_time(tolerance=1)` | |
+| `delay(?wf1 a ?wf2 b ...)` | `a.delay(b, 0.5)` | |
+| `frequency(w)`, `average(w)`, `rms(w)` | `w.frequency()`, `w.average()`, `w.rms()` | |
+| `integ(w)`, `deriv(w)`, `clip(w 1n 5n)` | `w.integ()`, `w.deriv()`, `w.clip(1e-9, 5e-9)` | |
+| `leafValue(w "temp" 27)` | `w.leaf(temp=27)` | |
+| `ocnPrint(...)` | `print(df)`, `df.write_csv(...)` | results are Polars DataFrames |
+
+The OCEAN spellings also exist as functions, so `pp.bandwidth(w, 3, "low")`, `pp.dB20(w)` and
+`pp.riseTime(w)` work too.
+
+### Results are tables
+
+A measurement over corners comes back as a table (a [Polars](https://pola.rs) DataFrame). A few
+table operations cover what you would otherwise loop over in OCEAN:
+
+```python
+import polars as pl                   # the table library underneath
+
+bw = r.ac1.v("n10").bandwidth()       # temp | rval | bandwidth, one row per corner
+
+bw.sort("bandwidth")                  # slowest corners first
+bw.filter(pl.col("bandwidth") < 2e6)  # only the corners below 2 MHz
+bw.write_csv("bandwidth.csv")         # or write_excel(...), for the spreadsheet
+```
+
+The filter gives:
+
+```
+┌───────┬────────┬───────────┐
+│ temp  ┆ rval   ┆ bandwidth │
+╞═══════╪════════╪═══════════╡
+│ -40.0 ┆ 2000.0 ┆ 1.7476e6  │
+│ 27.0  ┆ 2000.0 ┆ 1.7476e6  │
+│ 125.0 ┆ 2000.0 ┆ 1.7476e6  │
+└───────┴────────┴───────────┘
+```
+
+Two measurements of the same corners line up with `join`, here an AC bandwidth and a transient
+delay:
+
+```python
+delay = r.tran1.v("in").delay(r.tran1.v("n5"), 0.3)     # temp | rval | delay
+table = bw.join(delay, on=["temp", "rval"])            # temp | rval | bandwidth | delay
+
+table.filter(pl.col("temp") == 27)
+```
+```
+┌──────┬────────┬───────────┬───────────┐
+│ temp ┆ rval   ┆ bandwidth ┆ delay     │
+╞══════╪════════╪═══════════╪═══════════╡
+│ 27.0 ┆ 500.0  ┆ 6.9899e6  ┆ 5.8106e-9 │
+│ 27.0 ┆ 1000.0 ┆ 3.4951e6  ┆ 2.6562e-8 │
+│ 27.0 ┆ 2000.0 ┆ 1.7476e6  ┆ 5.1510e-8 │
+└──────┴────────┴───────────┴───────────┘
+```
+
+And a worst case over temperature, for each rval:
+
+```python
+table.group_by("rval").agg(pl.col("delay").max())
+```
+
+**When you want more.** The same few verbs scale up. Bandwidth of every node at every rval as one
+pivot table:
+
+```python
+nodes = [f"n{k}" for k in range(1, 11)]
+bw = pl.concat(r.ac1.v(n, temp=27).bandwidth().with_columns(node=pl.lit(n)) for n in nodes)
+bw.pivot("rval", index="node", values="bandwidth")
+```
+
+The top noise contributors of a pnoise analysis, out of thousands of devices:
+
+```python
+noise = pp.open("noise.pnoise")
+(noise.scan_long(field="total")                     # freq | signal | value, per device and freq
+      .group_by("signal").agg(pl.col("value").mean())
+      .sort("value", descending=True)
+      .head(5)
+      .collect())
+```
+
+**Monte Carlo** works the same way: `mc = r.tran2.v("out")` holds one curve per iteration, so
+`mc.cross(0.5)` is a table, `mc.ymax().describe()` gives mean/std/min/max over the runs, and
+`mc - mc.mean()` subtracts each curve's own mean.
+
+More: `python/examples/corner_report.py` (a corner spec report as a script), `python/examples/post_processing.py`, and the interactive tour, a [marimo](https://marimo.io)
+notebook: from `python/`, `uv run --group examples marimo edit examples/tour.py`.
+
+### Lazy queries (advanced)
+
+Under the waveforms are lazy Polars queries you can use directly. Opening reads only metadata;
+filters on sweep parameters skip whole files, and only the selected signals are decoded:
+
 ```python
 import polars as pl
 import polars_psf as pp
 
-# one entry point, lazy throughout: opening reads metadata, values are decoded on collect()
-f = pp.open("ac.ac")                      # PSFXL stubs pick up <stub>.psfxl automatically
-lf = f.scan()                             # LazyFrame: freq | signals (complex as Struct{re, im})
-lf.select("freq", pl.col("out").cx.db20(), pl.col("out").cx.phase()).collect()   # decodes only "out"
-f.names(), f.file().units("out"), f.file().header, pp.open("dcOp.dc").values()
-
-# many small signals (e.g. noise contributions): long table built in Rust, filters pushed down
-lf = pp.open("noise.pnoise").scan_long(field="total")      # freq | signal | value
-lf.filter(pl.col("signal").cast(pl.String).str.starts_with("xa1.")).group_by("freq").agg(pl.col("value").sum())
-
-r = pp.open("sim.raw")                    # directory with logFile or runObjFile: same API
-r.results                                 # one row per analysis result: name, type, params, leaves
-lf = r.scan("tran1")                      # wide: <params...> | time | signals
-lf.filter(pl.col("temp") == 27).select("rval", "time", "out").collect()   # skips other files
-# long format across corners / Monte Carlo: filters on parameters and signal names both push down
-(r.scan_long("tran1").filter((pl.col("temp") == 27) & (pl.col("signal") == "out"))
-  .group_by("rval").agg(pl.col("value").abs().max()).collect())
-```
-
-A single file is a dataset with one result and one leaf, so `result` can be left out. The native
-reader is still reachable for one leaf via `d.file(result, **params)` (header, props, Arrow batches).
-Queries run in Polars' Rust engine; Python only builds the plan. More: `python/examples/noise_queries.py`, and an
-interactive tour of the features as a [marimo](https://marimo.io) notebook: from `python/`,
-`uv run --group examples marimo edit examples/tour.py`.
-
-### Post-processing convenience layer
-
-`polars_psf.post` holds a `Waveform` — a value column over one or more index columns, backed by a
-`pl.LazyFrame` (materialized on demand) — and offers the imperative, numpy-style post-processing of
-[pycircuit](https://github.com/henjo/pycircuit)'s `post` module, still backed by Polars (`w.x`/`w.y`
-are `pl.Series`, `w.to_polars()` is the frame, and every operation builds Polars expressions):
-
-```python
-import polars_psf as pp
-
-ac = pp.open("ac.ac")                   # a single file holds one result: ac.v("out")
-h = ac.v("out") / ac.v("in")            # complex arithmetic on Struct{re, im}
-h.db20(), h.phase()                     # also +, -, *, /, **, abs, real, imag, conj
-h.bandwidth(), h.unity_gain_frequency(), h.phase_margin(), h.gain_margin()
-h.value(1e6), h.cross(0.0), h.deriv(), h.rms()          # resample/query/reduce
-pp.iip3(out, inn, f1, f2), pp.compression_point(gain_db)
-
 r = pp.open("sim.raw")
-r.ac1.v("n10").bandwidth()              # result objects: one curve per corner -> temp | rval | bandwidth
-w = r.tran1.v("out", temp=27)           # parameters narrow the leaves
-r.tran1.waves(["in", "out"], temp=27)   # several signals, decoded together on first access
-w.to_polars()                           # index column(s) then the value: rval | time | out
-w.rise_time(), w.slew_rate(), w.overshoot(), w.settling_time(), w.frequency()
-w.leaf(rval=1e3), w.integ(), w.delay(r.tran1.v("in", temp=27), 0.5)
-mc = r.tran2.v("out")                   # Monte Carlo: groups = ["iteration"]
-mc.cross(0.5), mc.ymax()                 # one row per iteration (a single curve gives a scalar)
-mc - mc.mean(), mc / mc.ymax()           # per-curve results broadcast, joined on the group columns
-mc.deriv(), mc.clip(1e-9, 5e-9)          # per iteration, iteration column kept
+lf = r.tran1.scan()                       # LazyFrame: temp | rval | time | signals...
+lf.filter(pl.col("temp") == 27).select("rval", "time", "out").collect()   # reads 3 of 9 files, 1 signal
+
+# long format [params..., sweep, signal, value]: filters on parameters and signal names push down
+(r.tran1.scan_long().filter((pl.col("temp") == 27) & (pl.col("signal") == "out"))
+   .group_by("rval").agg(pl.col("value").abs().max()).collect())
+
+f = pp.open("ac.ac")                      # a single file; PSFXL stubs pick up <stub>.psfxl automatically
+f.scan().select("freq", pl.col("out").cx.db20(), pl.col("out").cx.phase()).collect()  # complex = Struct{re, im}
+f.names(), f.file().units("out"), f.file().header, pp.open("dcOp.dc").values()
 ```
 
-Measurements follow OCEAN semantics: `xmax()` is the x at the largest y (the x range is `w.x.min()`
-/ `w.x.max()`), and `cross(threshold, edge=1, type="either")` counts edges from 1 (negative from
-the end). The OCEAN names are aliases of the Python names, for Cadence users: `pp.dB20`,
-`pp.unityGainFreq`, `pp.phaseMargin`, `pp.riseTime`, `pp.leafValue`, `pp.openResults`, ...
-
-A waveform wraps a `Dataset.scan` plan projected to its signal, so nothing is decoded until a value
-is needed, and the convenience layer keeps the pushdown behaviour of the queries. Complex traces are `Struct{re, im}`; `abs`/`phase`/`real`/`imag`/`conj` and mixed real/complex
-arithmetic are built on those fields. `w.plot()` returns an Altair chart via Polars' `DataFrame.plot`
-(needs `polars[plot]`, i.e. `altair>=5.4`). Walkthrough:
-`python/examples/post_processing.py`; interactive demo:
-`uvx marimo edit --sandbox python/examples/waveform.py`.
+Queries run in Polars' Rust engine; Python only builds the plan. A `Waveform` wraps such a query
+(`w.lazy`, `w.to_polars()`), and `w.plot()` returns an Altair chart via Polars' `DataFrame.plot`
+(needs `polars[plot]`). The post-processing follows
+[pycircuit](https://github.com/henjo/pycircuit)'s `post` module (its names are aliases too:
+`unityGainFrequency`, `IIP3`, ...); interactive demo: `uvx marimo edit --sandbox
+python/examples/waveform.py`.
 
 ### libpsf-compatible numpy API
 
