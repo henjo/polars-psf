@@ -1,11 +1,12 @@
 //! Result directories of Spectre and ADE: resolves `logFile` / `runObjFile` trees (nested sweeps,
 //! Monte Carlo, ADE parametric runs) into leaf PSF files, each tagged with the values of all its
-//! outer sweep parameters.
+//! outer sweep parameters. A single PSF file opens as a directory with one result and one
+//! parameter-free leaf, so callers handle both the same way.
 //!
 //! ```no_run
-//! let r = psfkit_results::Results::open("sim.raw")?;
-//! for a in r.analyses()? {
-//!     println!("{} ({}): params {:?}, {} leaves", a.name, a.analysis_type, a.params, a.leaves);
+//! let r = psfkit_results::ResultDir::open("sim.raw")?;
+//! for a in r.results()? {
+//!     println!("{} ({}): params {:?}, {} leaves", a.label, a.analysis_type, a.params, a.leaves);
 //! }
 //! for leaf in r.leaves("ac2")?.iter() {
 //!     let f = psfkit::PsfFile::open(&leaf.path)?;
@@ -14,13 +15,13 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
-//! Everything is lazy: [`Results::open`] reads only the top-level `runObjFile`/`logFile`;
-//! logFiles are parsed on the first [`Results::analyses`] call; parent sweep files are read and
-//! leaf files checked only when [`Results::leaves`] is called for that analysis (then cached).
+//! Everything is lazy: [`ResultDir::open`] reads only the top-level `runObjFile`/`logFile`;
+//! logFiles are parsed on the first [`ResultDir::results`] call; parent sweep files are read and
+//! leaf files checked only when [`ResultDir::leaves`] is called for that result (then cached).
 //!
 //! Outer sweep values come from the parent `.sweep` / `.montecarlo` files (full precision); the
 //! rounded values in `logFile` properties are only used to match children to sweep points, or as a
-//! fallback (reported in [`Results::warnings`]).
+//! fallback (reported in [`ResultDir::warnings`]).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,9 +38,9 @@ pub enum Error {
     NotResults(PathBuf),
     #[error("{path}: {msg}")]
     Invalid { path: PathBuf, msg: String },
-    #[error("no analysis {0:?}")]
-    UnknownAnalysis(String),
-    #[error("analysis name {name:?} is ambiguous: {candidates:?}")]
+    #[error("no result {0:?}")]
+    UnknownResult(String),
+    #[error("result name {name:?} is ambiguous: {candidates:?}")]
     Ambiguous {
         name: String,
         candidates: Vec<String>,
@@ -67,8 +68,8 @@ impl Param {
 /// One PSF data file and the outer parameters it was simulated at.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Leaf {
-    /// Analysis family (root entry name without the `-type` suffix, e.g. `mysweep_ac2`).
-    pub analysis: String,
+    /// Result family (root entry name without the `-type` suffix, e.g. `mysweep_ac2`).
+    pub result: String,
     /// Spectre analysis type of the data file (`dc`, `ac`, `tran`, ...).
     pub analysis_type: String,
     /// logFile entry name.
@@ -78,13 +79,18 @@ pub struct Leaf {
     pub path: PathBuf,
 }
 
-/// Summary of an analysis family (from the logFiles only; data files are not checked).
+/// Summary of the result of one analysis: its family of leaf files over all sweep points (from
+/// the logFiles only; data files are not checked).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Analysis {
+pub struct ResultInfo {
+    /// Family name (root logFile entry without `-type`, e.g. `swp_t_tran1`).
     pub name: String,
+    /// Name for listings: the analysis' own name (`tran1`) when no other family shares it,
+    /// otherwise [`Self::name`]. Accepted by [`ResultDir::resolve`].
+    pub label: String,
     pub analysis_type: String,
     pub params: Vec<String>,
-    /// Leaves listed in the logFiles (some may turn out missing in [`Results::leaves`]).
+    /// Leaves listed in the logFiles (some may turn out missing in [`ResultDir::leaves`]).
     pub leaves: usize,
 }
 
@@ -108,6 +114,30 @@ struct Entry {
     data_file: String,
     sweep: Option<String>,
     props: psfkit::Properties,
+}
+
+/// The analysis' own name: the longest `_`-delimited tail shared by the family name and the
+/// first leaf entry (`swp_t_tran1` + `swp_t-000_swp_r-000_tran1-tran` -> `tran1`).
+fn own_name<'a>(family: &'a str, leaf: &Entry) -> &'a str {
+    let entry = leaf
+        .name
+        .strip_suffix(&format!("-{}", leaf.atype))
+        .unwrap_or(&leaf.name);
+    let common = family
+        .bytes()
+        .rev()
+        .zip(entry.bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    if common == family.len() {
+        return family; // not nested (or identical names)
+    }
+    let tail = &family[family.len() - common..];
+    // cut at a `_` that both names have right before the tail
+    match tail.find('_') {
+        Some(i) if i + 1 < tail.len() => &tail[i + 1..],
+        _ => family,
+    }
 }
 
 impl Tree {
@@ -158,25 +188,38 @@ impl Tree {
     }
 }
 
+/// Data files kept open by [`ResultDir::file`] (least recently used are dropped first).
+const OPEN_FILES: usize = 64;
+
 /// A result directory. Cheap to open; see the crate docs for what is read when.
-pub struct Results {
+pub struct ResultDir {
     root: PathBuf,
     sources: Vec<Source>,
     trees: OnceLock<Vec<Tree>>,
     families: Mutex<HashMap<String, Arc<Vec<Leaf>>>>,
     warnings: Mutex<Vec<String>>,
+    /// A single PSF file opened as a one-leaf directory.
+    single: Option<(ResultInfo, Arc<Vec<Leaf>>)>,
+    /// Open data files, most recently used last.
+    files: Mutex<Vec<(PathBuf, Arc<PsfFile>)>>,
 }
 
-impl Results {
-    /// Opens a result directory (containing `runObjFile` or `logFile`), or one of those files.
-    /// Reads only that file.
-    pub fn open(path: impl AsRef<Path>) -> Result<Results> {
+const DIR_FILES: [&str; 3] = ["runObjFile", "logFile", "logFile.tmp"];
+
+impl ResultDir {
+    /// Opens a result directory (containing `runObjFile` or `logFile`), one of those files, or
+    /// a single PSF data file (see [`Self::from_file`]). Reads only that file.
+    pub fn open(path: impl AsRef<Path>) -> Result<ResultDir> {
         let path = path.as_ref();
+        let is_dir_file = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| DIR_FILES.contains(&n));
+        if !path.is_dir() && !is_dir_file {
+            return Self::from_file(path);
+        }
         let (dir, file) = if path.is_dir() {
-            let pick = ["runObjFile", "logFile", "logFile.tmp"]
-                .iter()
-                .map(|n| path.join(n))
-                .find(|p| p.is_file());
+            let pick = DIR_FILES.iter().map(|n| path.join(n)).find(|p| p.is_file());
             (
                 path.to_owned(),
                 pick.ok_or_else(|| Error::NotResults(path.to_owned()))?,
@@ -196,13 +239,86 @@ impl Results {
                 outer: Vec::new(),
             }]
         };
-        Ok(Results {
+        Ok(ResultDir {
             root: dir,
             sources,
             trees: OnceLock::new(),
             families: Mutex::new(HashMap::new()),
             warnings: Mutex::new(warnings),
+            single: None,
+            files: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Opens one PSF data file as a result directory with a single result (named after the
+    /// header's `analysis name`, else the file name up to the first `.`) and one leaf without
+    /// parameters. Reads the file's declarations.
+    pub fn from_file(path: impl AsRef<Path>) -> Result<ResultDir> {
+        let path = path.as_ref();
+        let f = Arc::new(PsfFile::open(path)?);
+        let header = f.header();
+        let name = header
+            .get_str("analysis name")
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                let file = path
+                    .file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                file.split('.').next().unwrap_or_default().to_owned()
+            });
+        let analysis_type = header
+            .get_str("analysis type")
+            .unwrap_or_default()
+            .to_owned();
+        let info = ResultInfo {
+            name: name.clone(),
+            label: name.clone(),
+            analysis_type: analysis_type.clone(),
+            params: Vec::new(),
+            leaves: 1,
+        };
+        let leaf = Leaf {
+            result: name.clone(),
+            analysis_type,
+            name,
+            params: Vec::new(),
+            path: path.to_owned(),
+        };
+        Ok(ResultDir {
+            root: path.to_owned(),
+            sources: Vec::new(),
+            trees: OnceLock::new(),
+            families: Mutex::new(HashMap::new()),
+            warnings: Mutex::new(Vec::new()),
+            single: Some((info, Arc::new(vec![leaf]))),
+            files: Mutex::new(vec![(path.to_owned(), f)]),
+        })
+    }
+
+    /// True if this was opened from a single PSF data file.
+    pub fn is_single_file(&self) -> bool {
+        self.single.is_some()
+    }
+
+    /// An opened data file, shared between calls. The last [`OPEN_FILES`] files stay open.
+    pub fn file(&self, path: &Path) -> Result<Arc<PsfFile>> {
+        {
+            let mut files = self.files.lock().unwrap();
+            if let Some(i) = files.iter().position(|(p, _)| p == path) {
+                let hit = files.remove(i);
+                let f = hit.1.clone();
+                files.push(hit);
+                return Ok(f);
+            }
+        }
+        // open outside the lock: leaves are read in parallel
+        let f = Arc::new(PsfFile::open(path)?);
+        let mut files = self.files.lock().unwrap();
+        if files.len() >= OPEN_FILES {
+            files.remove(0);
+        }
+        files.push((path.to_owned(), f.clone()));
+        Ok(f)
     }
 
     pub fn root(&self) -> &Path {
@@ -240,9 +356,12 @@ impl Results {
         Ok(self.trees.get().expect("set above"))
     }
 
-    /// Analysis families in first-seen order. Parses the logFiles on first call.
-    pub fn analyses(&self) -> Result<Vec<Analysis>> {
-        let mut out: Vec<Analysis> = Vec::new();
+    /// Result families in first-seen order. Parses the logFiles on first call.
+    pub fn results(&self) -> Result<Vec<ResultInfo>> {
+        if let Some((info, _)) = &self.single {
+            return Ok(vec![info.clone()]);
+        }
+        let mut out: Vec<ResultInfo> = Vec::new();
         for t in self.trees()? {
             for &root in t.roots() {
                 let mut leaves = Vec::new();
@@ -253,7 +372,8 @@ impl Results {
                 let name = t.family(root);
                 match out.iter_mut().find(|a| a.name == name) {
                     Some(a) => a.leaves += leaves.len(),
-                    None => out.push(Analysis {
+                    None => out.push(ResultInfo {
+                        label: own_name(&name, &t.entries[*first]).to_owned(),
                         name,
                         analysis_type: t.entries[*first].atype.clone(),
                         params: t
@@ -267,15 +387,33 @@ impl Results {
                 }
             }
         }
+        // own names shared by several families (`tran1` and `mymonte_tran1`): keep family names
+        let mut count: HashMap<String, usize> = HashMap::new();
+        for a in &out {
+            *count.entry(a.label.clone()).or_default() += 1;
+        }
+        for a in &mut out {
+            if count[&a.label] > 1 {
+                a.label = a.name.clone();
+            }
+        }
         Ok(out)
     }
 
-    /// Resolves an analysis name: exact family name, or a unique family whose name ends with
-    /// `_<name>` (so `ac2` finds `mysweep_ac2`).
+    /// Resolves a result name: exact family name or label, or a unique family whose name ends
+    /// with `_<name>` (so `ac2` finds `mysweep_ac2`).
     pub fn resolve(&self, name: &str) -> Result<String> {
-        let all = self.analyses()?;
-        if all.iter().any(|a| a.name == name) {
-            return Ok(name.to_owned());
+        if let Some((info, _)) = &self.single {
+            // a single file also answers to its analysis type ("ac", "tran")
+            return if name == info.name || name == info.analysis_type {
+                Ok(info.name.clone())
+            } else {
+                Err(Error::UnknownResult(name.to_owned()))
+            };
+        }
+        let all = self.results()?;
+        if let Some(a) = all.iter().find(|a| a.name == name || a.label == name) {
+            return Ok(a.name.clone());
         }
         let suffix = format!("_{name}");
         let c: Vec<String> = all
@@ -285,7 +423,7 @@ impl Results {
             .collect();
         match c.len() {
             1 => Ok(c.into_iter().next().unwrap()),
-            0 => Err(Error::UnknownAnalysis(name.to_owned())),
+            0 => Err(Error::UnknownResult(name.to_owned())),
             _ => Err(Error::Ambiguous {
                 name: name.to_owned(),
                 candidates: c,
@@ -293,10 +431,13 @@ impl Results {
         }
     }
 
-    /// Existing leaves of one analysis family (see [`Self::resolve`]). Reads that family's parent
+    /// Existing leaves of one result family (see [`Self::resolve`]). Reads that family's parent
     /// sweep files and checks its data files on first call; cached afterwards.
-    pub fn leaves(&self, analysis: &str) -> Result<Arc<Vec<Leaf>>> {
-        let name = self.resolve(analysis)?;
+    pub fn leaves(&self, result: &str) -> Result<Arc<Vec<Leaf>>> {
+        let name = self.resolve(result)?;
+        if let Some((_, leaves)) = &self.single {
+            return Ok(leaves.clone());
+        }
         if let Some(l) = self.families.lock().unwrap().get(&name) {
             return Ok(l.clone());
         }
@@ -322,7 +463,7 @@ impl Results {
     }
 }
 
-/// Resolution of one analysis family.
+/// Resolution of one result family.
 struct Walk<'a> {
     t: &'a Tree,
     family: &'a str,
@@ -352,7 +493,7 @@ impl Walk<'_> {
                 return Ok(());
             }
             self.leaves.push(Leaf {
-                analysis: self.family.to_owned(),
+                result: self.family.to_owned(),
                 analysis_type: e.atype.clone(),
                 name: e.name.clone(),
                 params,

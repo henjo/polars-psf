@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use psfkit_results::{Param, Results};
+use psfkit_results::{Param, ResultDir};
 
 fn td(p: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -15,10 +15,12 @@ fn f(p: &Param) -> f64 {
 #[test]
 fn spectre_nested_sweep() {
     // sweep1 (vdc3) { sweep2 (vdc2) { dc1, dc2 (vdc1) } }
-    let r = Results::open(td("pycircuit/pardcsweep.raw")).unwrap();
-    let a = r.analyses().unwrap();
+    let r = ResultDir::open(td("pycircuit/pardcsweep.raw")).unwrap();
+    let a = r.results().unwrap();
     let names: Vec<_> = a.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, ["sweep1_dc1", "sweep1_dc2"]);
+    let labels: Vec<_> = a.iter().map(|a| a.label.as_str()).collect();
+    assert_eq!(labels, ["dc1", "dc2"]);
     assert_eq!(a[0].params, ["vdc3", "vdc2"]);
     assert_eq!(a[0].leaves, 16);
     let leaves = r.leaves("dc1").unwrap();
@@ -36,8 +38,8 @@ fn spectre_nested_sweep() {
 
 #[test]
 fn modern_logfile_sweeps_and_monte_carlo() {
-    let r = Results::open(td("psf-parser/binary/logFile")).unwrap();
-    let a = r.analyses().unwrap();
+    let r = ResultDir::open(td("psf-parser/binary/logFile")).unwrap();
+    let a = r.results().unwrap();
     let get = |n: &str| {
         a.iter()
             .find(|x| x.name == n)
@@ -65,14 +67,14 @@ fn modern_logfile_sweeps_and_monte_carlo() {
     assert_eq!(it, [1.0, 2.0, 3.0]);
     assert!(matches!(
         r.leaves("nope"),
-        Err(psfkit_results::Error::UnknownAnalysis(_))
+        Err(psfkit_results::Error::UnknownResult(_))
     ));
 }
 
 #[test]
 fn ade_parametric_runobjfile() {
-    let r = Results::open(td("pycircuit/resultdirs/parsweep/psf")).unwrap();
-    let a = r.analyses().unwrap();
+    let r = ResultDir::open(td("pycircuit/resultdirs/parsweep/psf")).unwrap();
+    let a = r.results().unwrap();
     let op = a.iter().find(|a| a.name == "opBegin").unwrap();
     assert_eq!(op.params, ["VDC1", "VDC2"]);
     assert_eq!(op.leaves, 9);
@@ -99,15 +101,15 @@ fn ade_parametric_runobjfile() {
 
 #[test]
 fn single_run_dir() {
-    let r = Results::open(td("pycircuit/resultdirs/simple")).unwrap();
-    let names: Vec<_> = r.analyses().unwrap().into_iter().map(|a| a.name).collect();
+    let r = ResultDir::open(td("pycircuit/resultdirs/simple")).unwrap();
+    let names: Vec<_> = r.results().unwrap().into_iter().map(|a| a.name).collect();
     assert!(
         names.contains(&"srcSweep".to_owned()) && names.contains(&"opBegin".to_owned()),
         "{names:?}"
     );
 }
 
-/// open() and analyses() must not touch parent sweep files or data files.
+/// open() and results() must not touch parent sweep files or data files.
 #[test]
 fn lazy_resolution() {
     let tmp = std::env::temp_dir().join(format!("psfkit-lazy-{}", std::process::id()));
@@ -119,8 +121,8 @@ fn lazy_resolution() {
     }
     std::fs::remove_file(tmp.join("sweep1_dc1.sweep")).unwrap();
     std::fs::remove_file(tmp.join("sweep1-000_sweep2-000_dc2.dc")).unwrap();
-    let r = Results::open(&tmp).unwrap();
-    assert_eq!(r.analyses().unwrap().len(), 2);
+    let r = ResultDir::open(&tmp).unwrap();
+    assert_eq!(r.results().unwrap().len(), 2);
     assert!(r.warnings().is_empty(), "{:?}", r.warnings());
     // dc2 resolution notices only its own missing leaf
     assert_eq!(r.leaves("dc2").unwrap().len(), 15);
@@ -134,4 +136,33 @@ fn lazy_resolution() {
         r.warnings()
     );
     std::fs::remove_dir_all(&tmp).unwrap();
+}
+
+#[test]
+fn single_file_is_one_result() {
+    let r = ResultDir::open(td("psf-parser/binary/myac.ac")).unwrap();
+    assert!(r.is_single_file());
+    let a = r.results().unwrap();
+    assert_eq!(a.len(), 1);
+    assert_eq!(
+        (a[0].label.as_str(), a[0].analysis_type.as_str()),
+        ("myac", "ac")
+    );
+    assert!(a[0].params.is_empty());
+    assert_eq!(r.resolve("ac").unwrap(), "myac");
+    assert!(r.resolve("tran").is_err());
+    let leaves = r.leaves("myac").unwrap();
+    assert_eq!(leaves.len(), 1);
+    assert!(leaves[0].params.is_empty());
+    // the cached handle is shared
+    let f1 = r.file(&leaves[0].path).unwrap();
+    let f2 = r.file(&leaves[0].path).unwrap();
+    assert!(std::sync::Arc::ptr_eq(&f1, &f2));
+}
+
+#[test]
+fn logfile_path_opens_the_directory() {
+    let r = ResultDir::open(td("pycircuit/pardcsweep.raw/logFile")).unwrap();
+    assert!(!r.is_single_file());
+    assert_eq!(r.results().unwrap().len(), 2);
 }
