@@ -20,7 +20,9 @@ def _norm(x):
     return x
 
 
-@pytest.mark.parametrize("name", ["srcSweep", "tran.tran", "frequencySweep", "dc.dc", "pnoise0.pnoise", "timeSweep", "opBegin"])
+@pytest.mark.parametrize(
+    "name", ["srcSweep", "tran.tran", "frequencySweep", "dc.dc", "pnoise0.pnoise", "timeSweep", "opBegin"]
+)
 def test_same_as_libpsf(name):
     a, b = libpsf.PSFDataSet(str(P / name)), compat.PSFDataSet(P / name)
     names = list(a.get_signal_names())
