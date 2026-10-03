@@ -27,6 +27,9 @@ classifiers = [
 Repository = "https://github.com/henjo/polars-psf"
 Issues = "https://github.com/henjo/polars-psf/issues"
 
+[project.scripts]
+polars-psf = "polars_psf.cli:main"
+
 [project.optional-dependencies]
 # compat (libpsf API), Waveform.to_numpy and dft()
 numpy = ["numpy"]

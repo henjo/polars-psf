@@ -181,6 +181,26 @@ also `semilogx()`, `bode()`), `w.plot(backend="altair")` gives an interactive ch
 `unityGainFrequency`, `IIP3`, ...); interactive demo: `uvx marimo edit --sandbox
 python/examples/waveform.py`.
 
+### Schematic names
+
+ADE result directories carry the netlister's name maps (`netlist/amap/`). Names that start with `/`
+are schematic paths and are translated through them, so you can use the names from the schematic:
+
+```python
+r = pp.open("sim/psf")                   # finds sim/netlist/amap; or pp.open(..., netlist=...)
+r.tran1.v("/I0/vout")                    # the netlist's I0.VOUT (or whatever the netlister named it)
+r.tran1.i("/R0/PLUS")                    # terminal currents too (MINUS gives the negated current)
+r.netlist_name("/I0/vout"), r.schematic_name("I0.VOUT")
+```
+
+### Command line
+
+```sh
+polars-psf info sim.raw                                  # results, parameters, sweeps, signal counts
+polars-psf names sim.raw tran1 --grep '^n'               # signal names
+polars-psf export sim.raw out.parquet -r tran1 -s out -s /I0/vout -w temp=27   # also .csv, .ipc, .ndjson
+```
+
 ### polars-waveform
 
 `Waveform`, the measurements and `cx` live in their own pure-Python package,

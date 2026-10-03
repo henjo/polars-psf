@@ -26,9 +26,10 @@ from os import PathLike
 
 import polars as pl
 from polars.io.plugins import register_io_source
-from polars_waveform import Waveform
+from polars_waveform import Waveform, cx
 
 from ._polars_psf import PsfFile, ResultDir
+from .names import NameMap
 
 __all__ = ["Dataset", "Result", "open", "openResults"]
 
@@ -36,9 +37,10 @@ _FIXED = ("leaf", "path")  # leaf table columns that are not parameters
 _REL_TOL = 1e-5  # parameter matching: logFiles round values to 6 significant digits
 
 
-def open(path: str | PathLike) -> Dataset:
-    """Open a PSF file or result directory lazily (only metadata is read)."""
-    return Dataset(path)
+def open(path: str | PathLike, netlist: str | PathLike | None = None) -> Dataset:
+    """Open a PSF file or result directory lazily (only metadata is read). ``netlist`` is ADE's
+    netlist directory for schematic names; by default it is found next to the results."""
+    return Dataset(path, netlist)
 
 
 openResults = open  # OCEAN alias
@@ -116,11 +118,15 @@ class _Once:
 class Dataset:
     """A PSF file or result directory. Everything value-related is a lazy Polars query."""
 
-    def __init__(self, path: str | PathLike):
+    def __init__(self, path: str | PathLike, netlist: str | PathLike | None = None):
+        """``netlist``: ADE netlist directory with the name maps (``amap/``); by default found
+        next to the results when a schematic name (``/I0/out``) is first used."""
         self._r = ResultDir(path)
         self._tables: dict[str, pl.DataFrame] = {}
         self._schemas: dict[tuple, pl.Schema] = {}
         self._files: dict[str, PsfFile] = {}
+        self._netlist = netlist
+        self._name_map: NameMap | bool | None = False  # False: not looked up yet
 
     def __repr__(self) -> str:
         kind = "file" if self._r.is_single_file else "dir"
@@ -241,7 +247,10 @@ class Dataset:
         return self._file(sel["path"][0])
 
     def value(self, name: str, result: str | None = None, **params):
-        """One value of a non-swept leaf (operating point, info) as a Python object."""
+        """One value of a non-swept leaf (operating point, info) as a Python object; schematic
+        paths (``"/I0/vout"``) are translated with ADE's name maps."""
+        if name.startswith("/"):
+            name = self._need_map().net(name)
         return self.file(result, **params).value(name)
 
     def values(self, result: str | None = None, **params) -> dict:
@@ -337,6 +346,30 @@ class Dataset:
         groups = [p for p in self._params(rn) if sel[p].n_unique() > 1]
         return f, pred, groups, sel
 
+    @property
+    def name_map(self) -> NameMap | None:
+        """The ADE schematic <-> netlist name map, or ``None`` if there is none."""
+        if self._name_map is False:
+            if self._netlist is not None:
+                self._name_map = NameMap(self._netlist)
+            else:
+                self._name_map = NameMap.find(self._r.root)
+        return self._name_map
+
+    def _need_map(self) -> NameMap:
+        if self.name_map is None:
+            raise KeyError("schematic names (/...) need ADE's name maps: none found next to the results; "
+                           "pass netlist= to pp.open()")
+        return self.name_map
+
+    def netlist_name(self, path: str) -> str:
+        """Netlist name of the schematic net ``path`` (``/I0/vout`` -> ``I0.VOUT``)."""
+        return self._need_map().net(path)
+
+    def schematic_name(self, name: str) -> str:
+        """Schematic path of the netlist net ``name`` (``I0.VOUT`` -> ``/I0/vout``)."""
+        return self._need_map().schematic(name)
+
     def wave(self, signal: str, result: str | None = None, **params) -> Waveform:
         """One signal as a lazy :class:`~polars_psf.post.Waveform`.
 
@@ -348,7 +381,10 @@ class Dataset:
 
         Nothing is decoded until a value is needed.
         """
-        rn = self._rn(result)
+        return self._wave(signal, self._rn(result), params)
+
+    def _wave(self, signal: str, rn: str, params: dict, label: str | None = None, sign: int = 1) -> Waveform:
+        """:meth:`wave`, optionally named ``label`` and negated (``sign=-1``)."""
         f, pred, groups, sel = self._wave_setup(rn, params)
         if signal not in f:
             raise KeyError(signal)
@@ -357,13 +393,17 @@ class Dataset:
         lf = self.scan_long(rn) if f.is_psfxl else self.scan(rn)
         if pred is not None:  # pushed down to the leaf table: other files are skipped
             lf = lf.filter(pred)
+        name = label or signal
+        value = pl.col("value") if f.is_psfxl else pl.col(signal)
+        if sign < 0:
+            dtype = self._schema(rn, None, long=f.is_psfxl)["value" if f.is_psfxl else signal]
+            value = cx.complex(-cx.re(value), -cx.im(value)) if isinstance(dtype, pl.Struct) else -value
         if f.is_psfxl:
-            lf = lf.filter(pl.col("signal") == signal).select(*groups, sweep, pl.col("value").alias(signal))
-        else:
-            lf = lf.select(*groups, sweep, signal)
-        units = {sweep: _units(f, sweep), signal: _units(f, signal)}
+            lf = lf.filter(pl.col("signal") == signal)
+        lf = lf.select(*groups, sweep, value.alias(name))
+        units = {sweep: _units(f, sweep), name: _units(f, signal)}
         n = _points(f) if sel.height == 1 else None
-        return Waveform(lf, signal, index=[*groups, sweep], units=units, n=n)
+        return Waveform(lf, name, index=[*groups, sweep], units=units, n=n)
 
     def waves(self, names: list[str] | None = None, result: str | None = None, **params) -> dict:
         """``{name: Waveform}`` for several signals (parameters as in :meth:`wave`), decoded
@@ -406,12 +446,23 @@ class Dataset:
         return [*super().__dir__(), *(n for n in names if n.isidentifier())]
 
     def v(self, signal: str, result: str | None = None, **params) -> Waveform:
-        """A node voltage (OCEAN ``v``): :meth:`wave` of ``signal``."""
-        return self.wave(signal, result, **params)
+        """A node voltage (OCEAN ``v``): :meth:`wave` of ``signal``. A schematic path
+        (``"/I0/vout"``) is translated with ADE's name maps; the waveform keeps that name."""
+        rn = self._rn(result)
+        if signal.startswith("/"):
+            return self._wave(self._need_map().net(signal), rn, params, label=signal)
+        return self._wave(signal, rn, params)
 
     def i(self, terminal: str, result: str | None = None, **params) -> Waveform:
-        """A terminal current (OCEAN ``i``), e.g. ``"V1:p"``: :meth:`wave` of ``terminal``."""
-        return self.wave(terminal, result, **params)
+        """A terminal current (OCEAN ``i``): a netlist name (``"V1:p"``) or a schematic terminal
+        path (``"/R0/PLUS"``), translated with ADE's name maps."""
+        rn = self._rn(result)
+        if not terminal.startswith("/"):
+            return self._wave(terminal, rn, params)
+        signal, sign = self._need_map().terminal(terminal)
+        if signal is None:
+            raise ValueError(f"{terminal!r} is tied off by the netlister: its current is zero")
+        return self._wave(signal, rn, params, label=terminal, sign=sign)
 
 
 class Result:
@@ -469,12 +520,13 @@ class Result:
         return f"Result({self.name!r}, type={self.type!r}, params={self.params}, leaves={self.leaves.height})"
 
     def v(self, signal: str, **params) -> Waveform:
-        """A node voltage (OCEAN ``v``) as a lazy :class:`Waveform`, one curve per leaf."""
-        return self._ds.wave(signal, self._rn, **params)
+        """A node voltage (OCEAN ``v``) as a lazy :class:`Waveform`, one curve per leaf;
+        schematic paths (``"/I0/vout"``) are translated (see :meth:`Dataset.v`)."""
+        return self._ds.v(signal, self._rn, **params)
 
     def i(self, terminal: str, **params) -> Waveform:
-        """A terminal current (OCEAN ``i``), e.g. ``"V1:p"``."""
-        return self._ds.wave(terminal, self._rn, **params)
+        """A terminal current (OCEAN ``i``): ``"V1:p"`` or a schematic path ``"/R0/PLUS"``."""
+        return self._ds.i(terminal, self._rn, **params)
 
     wave = v
 
