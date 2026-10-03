@@ -20,18 +20,18 @@ From source (needs a Rust toolchain): `pip install "git+https://github.com/henjo
 
 ## Python
 
-### Quick start (for OCEAN users)
+### Quick start
 
 ```python
 import polars_psf as pp
 
-r   = pp.open("sim.raw")             # openResults("sim.raw")      a result directory or one PSF file
-ac  = r.ac1                          # selectResult('ac1)
-out = ac.v("out")                    # v("out")                    all corners at once, nothing read yet
+r   = pp.open("sim.raw")             # a result directory or a single PSF file
+ac  = r.ac1                          # the ac1 analysis
+out = ac.v("out")                    # all corners at once, nothing read yet
 
-out.bandwidth()                      # bandwidth(v("out") 3 "low") one row per corner
-out.db20().value(1e6)                # value(dB20(v("out")) 1M)
-out.leaf(temp=27, rval=1e3)          # leafValue(v("out") "temp" 27 "rval" 1k)
+out.bandwidth()                      # -3 dB bandwidth, one row per corner
+out.db20().value(1e6)                # gain at 1 MHz in dB
+out.leaf(temp=27, rval=1e3)          # one corner
 ac.v("out", temp=27)                 # or narrow the corners up front
 ```
 
@@ -52,7 +52,7 @@ works per curve, and the answer is a table with one row per corner:
 
 A single curve gives a plain number: `r.ac1.v("n10", temp=27, rval=1e3).bandwidth()` → `3495082.18`.
 
-### From OCEAN to polars-psf
+### Measurements
 
 | OCEAN | polars-psf | |
 |---|---|---|
@@ -73,13 +73,13 @@ A single curve gives a plain number: `r.ac1.v("n10", temp=27, rval=1e3).bandwidt
 | `leafValue(w "temp" 27)` | `w.leaf(temp=27)` | |
 | `ocnPrint(...)` | `print(df)`, `df.write_csv(...)` | results are Polars DataFrames |
 
-The OCEAN spellings also exist as functions, so `pp.bandwidth(w, 3, "low")`, `pp.dB20(w)` and
+The OCEAN names also work as functions, so `pp.bandwidth(w, 3, "low")`, `pp.dB20(w)` and
 `pp.riseTime(w)` work too.
 
 ### Results are tables
 
-A measurement over corners comes back as a table (a [Polars](https://pola.rs) DataFrame). A few
-table operations cover what you would otherwise loop over in OCEAN:
+A measurement over corners comes back as a table (a [Polars](https://pola.rs) DataFrame), ready
+to sort, filter and save:
 
 ```python
 import polars as pl                   # the table library underneath
@@ -155,7 +155,7 @@ noise = pp.open("noise.pnoise")
 More: `python/examples/corner_report.py` (a corner spec report as a script), `python/examples/post_processing.py`, and the interactive tour, a [marimo](https://marimo.io)
 notebook: from `python/`, `uv run --group examples marimo edit examples/tour.py`.
 
-### Lazy queries (advanced)
+### Lazy queries
 
 Under the waveforms are lazy Polars queries you can use directly. Opening reads only metadata;
 filters on sweep parameters skip whole files, and only the selected signals are decoded:
