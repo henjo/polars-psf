@@ -175,8 +175,8 @@ f.names(), f.file().units("out"), f.file().header, pp.open("dcOp.dc").values()
 ```
 
 Queries run in Polars' Rust engine; Python only builds the plan. A `Waveform` wraps such a query
-(`w.lazy`, `w.to_polars()`), and `w.plot()` returns an Altair chart via Polars' `DataFrame.plot`
-(needs `polars[plot]`). The post-processing follows
+(`w.lazy`, `w.to_polars()`). `w.plot()` draws with matplotlib (one line per corner, units on the axes;
+also `semilogx()`, `bode()`), `w.plot(backend="altair")` gives an interactive chart. The post-processing follows
 [pycircuit](https://github.com/henjo/pycircuit)'s `post` module (its names are aliases too:
 `unityGainFrequency`, `IIP3`, ...); interactive demo: `uvx marimo edit --sandbox
 python/examples/waveform.py`.

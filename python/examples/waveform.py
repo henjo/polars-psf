@@ -60,7 +60,7 @@ def _(mo):
       (Monte Carlo iterations, corner parameters) are carried through every operation.
     - Complex signals are `Struct{re, im}`; `+ - * / **`, `abs`, `phase`, `real`, `imag`, `conj`
       are built on those fields.
-    - `w.plot()` returns an Altair chart, via Polars' `DataFrame.plot`.
+    - `w.plot()` draws with matplotlib; `w.plot(backend="altair")` gives an interactive Altair chart, used here.
     """)
     return
 
@@ -112,7 +112,7 @@ def _(mo, w):
 
 @app.cell
 def _(w):
-    w.plot().properties(height=240, title=f"{w.yname} over {w.xname}")
+    w.plot(backend="altair").properties(height=240, title=f"{w.yname} over {w.xname}")
     return
 
 
@@ -383,7 +383,7 @@ def _(np, pl, pp):
 
 @app.cell
 def _(tone):
-    tone.dft().plot().properties(height=200, title="single-sided amplitude spectrum")
+    tone.dft().plot(backend="altair").properties(height=200, title="single-sided amplitude spectrum")
     return
 
 
