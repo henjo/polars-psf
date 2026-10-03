@@ -26,9 +26,9 @@ from os import PathLike
 
 import polars as pl
 from polars.io.plugins import register_io_source
+from polars_waveform import Waveform
 
 from ._polars_psf import PsfFile, ResultDir
-from .post import Waveform
 
 __all__ = ["Dataset", "Result", "open", "openResults"]
 

@@ -7,7 +7,7 @@ name = "polars-psf"
 description = "Fast reader for Cadence Spectre PSF simulation results (psfbin, psfascii, PSFXL) to Polars"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["polars>=1.40"]  # io plugins and concat(strict=); tested 1.40-1.44
+dependencies = ["polars>=1.40", "polars-waveform>=0.1"]  # polars: io plugins; tested 1.40-1.44
 dynamic = ["version"]
 classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3"]
 
@@ -15,6 +15,10 @@ classifiers = ["Programming Language :: Rust", "Programming Language :: Python :
 # compat (libpsf API), Waveform.to_numpy and dft()
 numpy = ["numpy"]
 test = ["pytest", "numpy", "pyarrow"]
+
+[tool.uv.sources]
+# own repository; for local work on both: uv pip install -e ../../polars-waveform
+polars-waveform = { git = "ssh://git@git.johome.net:2223/proj/polars-waveform.git", tag = "v0.1.0" }
 
 [dependency-groups]
 # marimo notebooks in examples/: uv run --group examples marimo edit examples/tour.py

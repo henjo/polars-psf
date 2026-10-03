@@ -184,6 +184,13 @@ Queries run in Polars' Rust engine; Python only builds the plan. A `Waveform` wr
 `unityGainFrequency`, `IIP3`, ...); interactive demo: `uvx marimo edit --sandbox
 python/examples/waveform.py`.
 
+### polars-waveform
+
+`Waveform`, the measurements and `cx` live in their own pure-Python package,
+[polars-waveform](https://git.johome.net/proj/polars-waveform) (`import polars_waveform as pw`), which polars-psf depends on
+and re-exports. It works on any Polars data, for example lab measurements in Parquet, including
+nested channels with their own sweep (`pw.from_nested`).
+
 ### libpsf-compatible numpy API
 
 ```python
@@ -227,7 +234,8 @@ File formats (psfbin, psfascii, PSFXL, result directories): `docs/format.md`.
 - Rust tests: `cargo test` (golden comparisons of every psfbin file against its psfascii twin, Spectre 25.1
   samples, truncation robustness). Test data and licenses: `testdata/README.md`.
 - Python: `cd python && maturin build --release -o dist`, then from the repository root `pytest python/tests`
-  with the wheel installed.
+  with the wheel installed. polars-waveform is its own repository; to work on both, install a checkout
+  of it in editable mode (`uv pip install -e ../polars-waveform`).
 
 ## License
 

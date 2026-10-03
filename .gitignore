@@ -2,3 +2,6 @@ target/
 /samplegen/out/
 *.tgz
 __marimo__/
+
+# NFS placeholders of deleted-but-open files
+.nfs*
