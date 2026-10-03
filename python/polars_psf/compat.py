@@ -97,7 +97,7 @@ class PSFDataSet:
         if self._all is None:
             df = self._f.to_polars()
             # positional access: no per-call name lookup in a wide frame
-            self._all = dict(zip(df.columns, df.get_columns()))
+            self._all = dict(zip(df.columns, df.get_columns(), strict=True))
         return self._all
 
     def _series(self, name: str) -> pl.Series:

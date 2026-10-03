@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use psfkit_results::Results;
+use psfkit_results::ResultDir;
 
 fn td(p: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -14,10 +14,13 @@ fn td(p: &str) -> PathBuf {
 fn nested_temp_rval_sweeps() {
     let mut points = Vec::new();
     for fmt in ["sweep_psfbin", "sweep_psfxl"] {
-        let r = Results::open(td(fmt)).unwrap();
-        let a = r.analyses().unwrap();
+        let r = ResultDir::open(td(fmt)).unwrap();
+        let a = r.results().unwrap();
         let names: Vec<_> = a.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(names, ["swp_t_tran1", "swp_t_ac1"], "{fmt}");
+        let labels: Vec<_> = a.iter().map(|x| x.label.as_str()).collect();
+        assert_eq!(labels, ["tran1", "ac1"], "{fmt}");
+        assert_eq!(r.resolve("ac1").unwrap(), "swp_t_ac1");
         assert!(
             a.iter()
                 .all(|x| x.params == ["temp", "rval"] && x.leaves == 9)

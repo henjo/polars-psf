@@ -1,34 +1,32 @@
 """Fast reader for Cadence Spectre PSF simulation results (psfbin, psfascii, PSFXL).
 
+One lazy entry point for single PSF files and result directories::
+
 >>> import polars_psf as pp
->>> f = pp.open("ac.ac")
->>> df = f.to_polars(["out"])                 # freq + out (Struct{re, im})
->>> df.select("freq", pp.cx.db20("out"))   # or pl.col("out").cx.db20()
+>>> d = pp.open("ac.ac")                       # metadata only; also a result dir / logFile
+>>> d.scan().select("freq", pp.cx.db20("out")).collect()   # or pl.col("out").cx.db20()
+>>> r = pp.open("sim.raw")
+>>> r.scan("tran1").filter(pl.col("temp") == 27).select("time", "out").collect()
+
+The :mod:`polars_psf.post` layer adds a numpy-style ``Waveform`` on top of the queries::
+
+>>> w = pp.wave("ac.ac", "out")            # lazy: decoded on first value access
+>>> w.db20(), w.phase(), w.bandwidth()     # complex arithmetic builds on Struct{re, im}
+
+Results as objects, and calculator functions (OCEAN names such as ``dB20`` are aliases)::
+
+>>> r = pp.open("sim.raw")
+>>> r.ac1.v("n10").bandwidth()             # one row per corner
+>>> pp.bandwidth(r.ac1.v("n10"), 3, "low"), pp.db20(r.ac1.v("n10"))
 """
 
-from os import PathLike
-
-from ._polars_psf import PsfError, PsfFile
 from . import cx
-from .results import Results
-from .lazy import scan_long
+from ._polars_psf import PsfError
+from .dataset import Dataset, Result, open, openResults
+from .post import *  # noqa: F403 - Waveform and the calculator functions
+from .post import __all__ as _post_all
 
-__all__ = ["PsfError", "PsfFile", "Results", "cx", "open", "read_polars", "results", "scan_long", "to_numpy_complex"]
-
-
-def open(path: str | PathLike) -> PsfFile:  # noqa: A001 - mirrors builtins.open
-    """Open a PSF file. For PSFXL stubs the sibling ``.psfxl`` data file is used automatically."""
-    return PsfFile(path)
-
-
-def results(path: str | PathLike) -> Results:
-    """Open a Spectre/ADE result directory (logFile / runObjFile): nested sweeps, Monte Carlo."""
-    return Results(path)
-
-
-def read_polars(path: str | PathLike, names: list[str] | None = None):
-    """Read sweep + traces of a swept PSF file into a polars DataFrame."""
-    return PsfFile(path).to_polars(names)
+__all__ = ["Dataset", "PsfError", "Result", "cx", "open", "openResults", "to_numpy_complex", *_post_all]
 
 
 def to_numpy_complex(series):

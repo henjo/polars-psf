@@ -7,7 +7,7 @@ import libpsf
 import polars_psf as pp
 
 path, n = sys.argv[1], int(sys.argv[2])
-d, f = libpsf.PSFDataSet(path), pp.open(path)
+d, f = libpsf.PSFDataSet(path), pp.open(path).file()  # low-level reader
 names = list(d.get_signal_names())[:n]
 assert names == f.names[: len(names)], "signal names differ"
 worst = 0.0

@@ -24,10 +24,10 @@ if lib == "libpsf":
     out = [d.get_signal(s) for s in names[:n]]
 else:
     f = pp.open(path)
-    names = f.names
+    names = f.names()
     t1 = time.perf_counter()
-    if f.is_swept:
-        out = f.to_polars(names[:n])
+    if f.is_swept():
+        out = f.scan().select(f.sweep_name(), *names[:n]).collect()
     else:
         out = [f.value(s) for s in names[:n]]
 t2 = time.perf_counter()

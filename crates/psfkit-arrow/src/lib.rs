@@ -1,4 +1,4 @@
-//! Converts [`psf`] columns to Apache Arrow arrays.
+//! Converts [`psfkit`] columns to Apache Arrow arrays.
 //!
 //! Numeric vectors are moved into Arrow buffers without copying. Complex values become
 //! `Struct{re, im}`, PSF structs become Arrow structs and fixed-size arrays become
@@ -115,8 +115,11 @@ pub fn column_to_arrow(col: Column) -> Result<ArrayRef, ArrowError> {
 
 /// Field metadata for a trace: `psf:type` and every string/number property (e.g. `units`).
 fn metadata(v: &psfkit::Variable) -> HashMap<String, String> {
-    let mut m: HashMap<String, String> = v
-        .props
+    props_metadata(&v.props, &v.type_name)
+}
+
+fn props_metadata(props: &psfkit::Properties, type_name: &str) -> HashMap<String, String> {
+    let mut m: HashMap<String, String> = props
         .iter()
         .map(|(k, p)| {
             let s = match p {
@@ -126,7 +129,7 @@ fn metadata(v: &psfkit::Variable) -> HashMap<String, String> {
             (format!("psf:{k}"), s)
         })
         .collect();
-    m.insert("psf:type".into(), v.type_name.clone());
+    m.insert("psf:type".into(), type_name.to_owned());
     m
 }
 
@@ -204,20 +207,7 @@ pub fn values_to_record_batch(
             return Ok(());
         };
         let a = column_to_arrow(col)?;
-        let mut md: HashMap<String, String> = v
-            .props
-            .iter()
-            .map(|(k, p)| {
-                (
-                    format!("psf:{k}"),
-                    match p {
-                        psfkit::PropValue::String(s) => s.clone(),
-                        other => other.to_string(),
-                    },
-                )
-            })
-            .collect();
-        md.insert("psf:type".into(), v.type_name.clone());
+        let md = props_metadata(&v.props, &v.type_name);
         fields.push(Field::new(&v.name, a.data_type().clone(), false).with_metadata(md));
         cols.push(a);
         Ok(())
@@ -305,6 +295,49 @@ pub fn to_long_record_batch(
     )
 }
 
+/// Long record batch `[sweep, signal, value]` from signals that each carry their own sweep
+/// axis (PSFXL signals do not have to share time points). Rows are signal by signal.
+pub fn to_long_record_batch_signals(
+    sweep_name: &str,
+    signals: Vec<(String, Column, Column)>,
+) -> Result<RecordBatch, ArrowError> {
+    use arrow_array::{Array, DictionaryArray, UInt32Array, types::UInt32Type};
+    let mut names = Vec::with_capacity(signals.len());
+    let mut lens = Vec::with_capacity(signals.len());
+    let mut xs = Vec::with_capacity(signals.len());
+    let mut ys = Vec::with_capacity(signals.len());
+    for (name, x, y) in signals {
+        if x.len() != y.len() {
+            return Err(ArrowError::InvalidArgumentError(format!(
+                "signal {name:?}: {} sweep points but {} values",
+                x.len(),
+                y.len()
+            )));
+        }
+        names.push(name);
+        lens.push(x.len());
+        xs.push(x);
+        ys.push(y);
+    }
+    let sweep = column_to_arrow(concat_columns(xs)?)?;
+    let value = column_to_arrow(concat_columns(ys)?)?;
+    let keys = UInt32Array::from_iter_values(
+        lens.iter()
+            .enumerate()
+            .flat_map(|(k, &n)| std::iter::repeat_n(k as u32, n)),
+    );
+    let dict = DictionaryArray::<UInt32Type>::try_new(keys, Arc::new(StringArray::from(names)))?;
+    let fields = vec![
+        Field::new(sweep_name, sweep.data_type().clone(), false),
+        Field::new("signal", dict.data_type().clone(), false),
+        Field::new("value", value.data_type().clone(), false),
+    ];
+    RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        vec![sweep, Arc::new(dict), value],
+    )
+}
+
 /// Repeats an array `times` times (one `take`, not `times` concatenations).
 fn arrow_select_tile(a: &ArrayRef, times: usize) -> Result<ArrayRef, ArrowError> {
     use arrow_array::Array;
@@ -370,13 +403,29 @@ fn type_label(c: &Column) -> &'static str {
 /// Empty record batch with the schema [`to_record_batch`] would produce for `names`
 /// (all traces if None), without reading values.
 pub fn swept_schema(file: &PsfFile, names: Option<&[&str]>) -> Result<RecordBatch, ArrowError> {
+    swept_schema_with(file, names, true)
+}
+
+/// Like [`swept_schema`]; `metadata_on = false` leaves out the PSF properties (consumers like
+/// Polars drop them, and they cost time for thousands of traces).
+pub fn swept_schema_with(
+    file: &PsfFile,
+    names: Option<&[&str]>,
+    metadata_on: bool,
+) -> Result<RecordBatch, ArrowError> {
+    let md = |v: &psfkit::Variable| {
+        if metadata_on {
+            metadata(v)
+        } else {
+            HashMap::new()
+        }
+    };
     let sweep = file
         .sweeps()
         .first()
         .ok_or_else(|| ArrowError::InvalidArgumentError("file is not swept".into()))?;
-    let mut fields = vec![
-        Field::new(&sweep.name, arrow_type(&sweep.dtype)?, false).with_metadata(metadata(sweep)),
-    ];
+    let mut fields =
+        vec![Field::new(&sweep.name, arrow_type(&sweep.dtype)?, false).with_metadata(md(sweep))];
     let traces: Vec<&psfkit::Variable> = match names {
         Some(ns) => ns
             .iter()
@@ -389,7 +438,53 @@ pub fn swept_schema(file: &PsfFile, names: Option<&[&str]>) -> Result<RecordBatc
         None => file.traces().iter().collect(),
     };
     for t in traces {
-        fields.push(Field::new(&t.name, arrow_type(&t.dtype)?, false).with_metadata(metadata(t)));
+        fields.push(Field::new(&t.name, arrow_type(&t.dtype)?, false).with_metadata(md(t)));
     }
     Ok(RecordBatch::new_empty(Arc::new(Schema::new(fields))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_array::{Array, Float64Array};
+
+    #[test]
+    fn long_signals_keep_their_own_axes() {
+        let b = to_long_record_batch_signals(
+            "time",
+            vec![
+                (
+                    "a".into(),
+                    Column::Float64(vec![0.0, 1.0]),
+                    Column::Float64(vec![1.0, 2.0]),
+                ),
+                (
+                    "b".into(),
+                    Column::Float64(vec![0.0, 0.5, 1.0]),
+                    Column::Float64(vec![3.0, 4.0, 5.0]),
+                ),
+            ],
+        )
+        .unwrap();
+        assert_eq!(b.num_rows(), 5);
+        let t = b.column(0).as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(t.values().as_ref(), &[0.0, 1.0, 0.0, 0.5, 1.0]);
+        let v = b.column(2).as_any().downcast_ref::<Float64Array>().unwrap();
+        assert_eq!(v.values().as_ref(), &[1.0, 2.0, 3.0, 4.0, 5.0]);
+        assert_eq!(b.schema().field(1).name(), "signal");
+        assert!(b.column(1).is_valid(4));
+    }
+
+    #[test]
+    fn long_signals_reject_length_mismatch() {
+        let e = to_long_record_batch_signals(
+            "time",
+            vec![(
+                "a".into(),
+                Column::Float64(vec![0.0]),
+                Column::Float64(vec![1.0, 2.0]),
+            )],
+        );
+        assert!(e.is_err());
+    }
 }

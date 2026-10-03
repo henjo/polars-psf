@@ -23,6 +23,9 @@ maintained Python 3 build of libpsf) and, for reference, the original C++ libpsf
   - libpsf: `PSFDataSet(f)`, `get_signal_names()`, `get_sweep_values()`, then `get_signal(name)` for N names
     (one numpy array per signal).
   - polars-psf: `pp.open(f)`, `.names`, `.to_polars(names[:N])` (one Polars DataFrame: sweep + N columns).
+    Measured 2026-09-27 with that pre-`Dataset` API; the current equivalent is
+    `d = pp.open(f); d.scan().select(d.sweep_name(), *d.names()[:N]).collect()`, which adds about 1 ms of
+    query planning (more for files with thousands of columns).
     Non-swept files: `value(name)` for N names in both.
   - polars-psf with `RAYON_NUM_THREADS=1` and with all 12 threads; libpsf is single-threaded.
 - Values compared with `bench/check_equal.py` (first 50 signals) wherever libpsf succeeds.
@@ -123,8 +126,8 @@ open + read + query):
 |---|---|
 | A. Python loop, one read per device (libpsf-style `noisesummary.py`) | ~70 s (3.5 s per 1000 devices) |
 | B. wide table (20,000 struct columns) + `pl.sum_horizontal` | 874 ms |
-| C. `to_polars_long(field="total")` + `group_by("freq").sum()` | 135 ms |
-| D. `pp.scan_long(path, field="total")` + `group_by` (lazy) | 137 ms |
+| C. `to_polars_long(field="total")` + `group_by("freq").sum()` (now `d.file().to_polars_long(...)`) | 135 ms |
+| D. `pp.scan_long(path, field="total")` + `group_by` (lazy; now `pp.open(path).scan_long(field="total")`) | 137 ms |
 | E. `scan_long` filtered to one block of 1000 devices by name | 36 ms |
 
 - A wide table costs per column (Arrow import, plan size), not per value: 20,000 columns cost more than the

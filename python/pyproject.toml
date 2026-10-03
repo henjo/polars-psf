@@ -7,14 +7,32 @@ name = "polars-psf"
 description = "Fast reader for Cadence Spectre PSF simulation results (psfbin, psfascii, PSFXL) to Polars"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["polars>=1.0"]
+dependencies = ["polars>=1.40"]  # io plugins and concat(strict=); tested 1.40-1.44
 dynamic = ["version"]
 classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3"]
 
 [project.optional-dependencies]
-test = ["pytest", "numpy"]
+# compat (libpsf API), Waveform.to_numpy and dft()
+numpy = ["numpy"]
+test = ["pytest", "numpy", "pyarrow"]
+
+[dependency-groups]
+# marimo notebooks in examples/: uv run --group examples marimo edit examples/tour.py
+examples = ["marimo", "altair>=5.4", "numpy"]
 
 [tool.maturin]
 module-name = "polars_psf._polars_psf"
 python-source = "."
 features = []
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+# Ω, × and − in docs and labels are intended; __all__ follows the docs order
+ignore = ["RUF001", "RUF002", "RUF003", "RUF005", "RUF022"]
+
+[tool.ruff.lint.per-file-ignores]
+"examples/*" = ["B018", "E501", "RUF022"]  # marimo cells end in bare expressions

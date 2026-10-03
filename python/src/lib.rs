@@ -82,15 +82,10 @@ impl PyPsfFile {
         names: Option<Vec<String>>,
         metadata: bool,
     ) -> PyResult<PyRecordBatch> {
-        let f = &self.inner;
-        let batch = py.detach(|| {
-            let data = match &names {
-                Some(n) => f.read(&n.iter().map(String::as_str).collect::<Vec<_>>()),
-                None => f.read_all(),
-            }
-            .map_err(err)?;
-            psfkit_arrow::to_record_batch_with(f, data, metadata).map_err(arrow_err)
-        })?;
+        let names: Option<Vec<&str>> = names
+            .as_ref()
+            .map(|n| n.iter().map(String::as_str).collect());
+        let batch = py.detach(|| file_batch(&self.inner, names.as_deref(), metadata))?;
         Ok(PyRecordBatch::new(batch))
     }
 }
@@ -198,7 +193,20 @@ impl PyPsfFile {
             .map(|u| u.to_string()))
     }
 
-    /// Sweep + traces as an Arrow record batch (PyCapsule interface; pass to polars/pyarrow).
+    /// Empty batch with the schema of `read(names)` / `to_polars(names)` (no values are read).
+    #[pyo3(signature = (names=None))]
+    fn schema(&self, names: Option<Vec<String>>) -> PyResult<PyRecordBatch> {
+        let names: Option<Vec<&str>> = names
+            .as_ref()
+            .map(|n| n.iter().map(String::as_str).collect());
+        Ok(PyRecordBatch::new(file_schema(
+            &self.inner,
+            names.as_deref(),
+        )?))
+    }
+
+    /// Sweep + traces (non-swept: one row of values) as an Arrow record batch (PyCapsule
+    /// interface; pass to polars/pyarrow).
     #[pyo3(signature = (names=None))]
     fn read(&self, py: Python<'_>, names: Option<Vec<String>>) -> PyResult<PyRecordBatch> {
         self.batch(py, names, true)
@@ -328,8 +336,9 @@ fn with_field<'a>(f: &'a psfkit::PsfFile, field: &str) -> Vec<&'a str> {
 fn res_err(e: psfkit_results::Error) -> PyErr {
     match e {
         psfkit_results::Error::Psf(e) => err(e),
-        e @ (psfkit_results::Error::UnknownAnalysis(_)
-        | psfkit_results::Error::Ambiguous { .. }) => PyKeyError::new_err(e.to_string()),
+        e @ (psfkit_results::Error::UnknownResult(_) | psfkit_results::Error::Ambiguous { .. }) => {
+            PyKeyError::new_err(e.to_string())
+        }
         e @ psfkit_results::Error::NotResults(_) => PyOSError::new_err(e.to_string()),
         e => PsfError::new_err(e.to_string()),
     }
@@ -419,37 +428,64 @@ fn long_schema_of(f: &psfkit::PsfFile, field: Option<&str>) -> PyResult<arrow_ar
     Ok(arrow_array::RecordBatch::new_empty(Arc::new(schema)))
 }
 
-/// Reads one leaf: swept files -> sweep + traces, non-swept -> one row of values.
-fn leaf_batch(
-    leaf: &psfkit_results::Leaf,
+/// Swept files -> sweep + traces, non-swept -> one row of values.
+fn file_batch(
+    f: &psfkit::PsfFile,
     names: Option<&[&str]>,
+    metadata: bool,
 ) -> PyResult<arrow_array::RecordBatch> {
-    let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
-    let b = if f.is_swept() {
-        let data = match names {
-            Some(n) => f.read(n),
-            None => f.read_all(),
-        }
-        .map_err(err)?;
-        psfkit_arrow::to_record_batch(&f, data)
-    } else {
-        psfkit_arrow::values_to_record_batch(&f, names)
+    if !f.is_swept() {
+        return psfkit_arrow::values_to_record_batch(f, names).map_err(arrow_err);
     }
-    .map_err(arrow_err)?;
-    with_params(&leaf.params, b).map_err(arrow_err)
+    let data = match names {
+        Some(n) => f.read(n),
+        None => f.read_all(),
+    }
+    .map_err(err)?;
+    psfkit_arrow::to_record_batch_with(f, data, metadata).map_err(arrow_err)
+}
+
+/// Empty batch with the schema of [`file_batch`], without reading swept values.
+fn file_schema(f: &psfkit::PsfFile, names: Option<&[&str]>) -> PyResult<arrow_array::RecordBatch> {
+    let b = if f.is_swept() {
+        // polars drops Arrow field metadata; skip building it
+        psfkit_arrow::swept_schema_with(f, names, false)
+    } else {
+        psfkit_arrow::values_to_record_batch(f, names).map(|b| b.slice(0, 0))
+    };
+    b.map_err(arrow_err)
 }
 
 /// (name, analysis_type, param names, listed leaves)
-type AnalysisRow = (String, String, Vec<String>, usize);
+type ResultRow = (String, String, Vec<String>, usize);
+
+use psfkit_results::{Leaf, ResultDir};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
+/// Wide batch of one leaf: `[params..., sweep, traces...]` (non-swept: one row of values).
+fn leaf_batch(
+    dir: &ResultDir,
+    leaf: &Leaf,
+    names: Option<&[String]>,
+) -> PyResult<arrow_array::RecordBatch> {
+    let f = dir.file(&leaf.path).map_err(res_err)?;
+    let names: Option<Vec<&str>> = names.map(|n| n.iter().map(String::as_str).collect());
+    // polars drops Arrow field metadata; skip building it
+    let b = file_batch(&f, names.as_deref(), false)?;
+    with_params(&leaf.params, b).map_err(arrow_err)
+}
 
 /// Long batch of one leaf: `[params..., sweep, signal, value]`. `names` not present in this
-/// leaf are skipped (leaves of a sweep normally share their signals).
+/// leaf are skipped (leaves of a sweep normally share their signals). PSFXL signals keep their
+/// own time axes.
 fn leaf_batch_long(
-    leaf: &psfkit_results::Leaf,
+    dir: &ResultDir,
+    leaf: &Leaf,
     names: Option<&[String]>,
     field: Option<&str>,
 ) -> PyResult<arrow_array::RecordBatch> {
-    let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
+    let f = dir.file(&leaf.path).map_err(res_err)?;
     let sel: Vec<&str> = match (names, field) {
         (Some(n), _) => n
             .iter()
@@ -459,35 +495,127 @@ fn leaf_batch_long(
         (None, Some(fl)) => with_field(&f, fl),
         (None, None) => f.traces().iter().map(|t| t.name.as_str()).collect(),
     };
-    let data = match field {
-        Some(fl) => f.read_field(&sel, fl),
-        None => f.read(&sel),
+    let b = if f.is_psfxl_stub() && field.is_none() {
+        let sweep = f.sweeps().first().map_or("time", |s| s.name.as_str());
+        let signals = sel
+            .iter()
+            .map(|n| {
+                let (x, y) = f.read_signal(n).map_err(err)?;
+                Ok(((*n).to_owned(), x, y))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        psfkit_arrow::to_long_record_batch_signals(sweep, signals)
+    } else {
+        let data = match field {
+            Some(fl) => f.read_field(&sel, fl),
+            None => f.read(&sel),
+        }
+        .map_err(err)?;
+        psfkit_arrow::to_long_record_batch(data, None)
     }
-    .map_err(err)?;
-    let b = psfkit_arrow::to_long_record_batch(data, None).map_err(arrow_err)?;
+    .map_err(arrow_err)?;
     with_params(&leaf.params, b).map_err(arrow_err)
 }
 
-/// A Spectre/ADE result directory (logFile, runObjFile; nested sweeps, Monte Carlo).
-#[pyclass(name = "Results", module = "polars_psf", frozen)]
-struct PyResults {
-    inner: psfkit_results::Results,
+/// Sweep points of a file: header, else PSFXL `.sig` count, else unknown.
+fn sweep_points(f: &psfkit::PsfFile) -> Option<usize> {
+    let n = f.header().get_i64("PSF sweep points").or_else(|| {
+        f.psfxl_meta().get_i64("cdnshsweepcount").or_else(|| {
+            f.psfxl_meta()
+                .get_str("cdnshsweepcount")
+                .and_then(|s| s.parse().ok())
+        })
+    })?;
+    usize::try_from(n).ok().filter(|&n| n > 0)
 }
 
-impl PyResults {
-    fn leaves(&self, analysis: &str) -> PyResult<std::sync::Arc<Vec<psfkit_results::Leaf>>> {
-        self.inner.leaves(analysis).map_err(res_err)
+enum Job {
+    Wide(usize),
+    Long(usize, Option<Vec<String>>),
+}
+
+/// Iterator over the batches of a scan: each step reads up to `step` jobs (leaves, or leaf x
+/// signal chunks) in parallel and yields their record batches.
+#[pyclass(module = "polars_psf", frozen)]
+struct BatchIter {
+    dir: Arc<ResultDir>,
+    leaves: Arc<Vec<Leaf>>,
+    names: Option<Vec<String>>,
+    field: Option<String>,
+    jobs: Mutex<VecDeque<Job>>,
+    step: usize,
+}
+
+#[pymethods]
+impl BatchIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&self, py: Python<'_>) -> PyResult<Option<Vec<PyRecordBatch>>> {
+        use rayon::prelude::*;
+        let jobs: Vec<Job> = {
+            let mut q = self.jobs.lock().unwrap();
+            let n = self.step.min(q.len());
+            q.drain(..n).collect()
+        };
+        if jobs.is_empty() {
+            return Ok(None);
+        }
+        let batches = py.detach(|| {
+            jobs.par_iter()
+                .map(|job| match job {
+                    Job::Wide(i) => leaf_batch(&self.dir, &self.leaves[*i], self.names.as_deref()),
+                    Job::Long(i, sel) => leaf_batch_long(
+                        &self.dir,
+                        &self.leaves[*i],
+                        sel.as_deref(),
+                        self.field.as_deref(),
+                    ),
+                })
+                .collect::<PyResult<Vec<_>>>()
+        })?;
+        Ok(Some(batches.into_iter().map(PyRecordBatch::new).collect()))
+    }
+}
+
+/// A Spectre/ADE result directory (logFile, runObjFile; nested sweeps, Monte Carlo) or a single
+/// PSF file opened as a directory with one result and one leaf.
+#[pyclass(name = "ResultDir", module = "polars_psf", frozen)]
+struct PyResultDir {
+    inner: Arc<ResultDir>,
+}
+
+impl PyResultDir {
+    fn leaves(&self, result: &str) -> PyResult<Arc<Vec<Leaf>>> {
+        self.inner.leaves(result).map_err(res_err)
+    }
+
+    fn first(&self, result: &str) -> PyResult<(Arc<Vec<Leaf>>, Arc<psfkit::PsfFile>)> {
+        let leaves = self.leaves(result)?;
+        let leaf = leaves
+            .first()
+            .ok_or_else(|| PsfError::new_err(format!("result {result:?} has no leaves")))?;
+        let f = self.inner.file(&leaf.path).map_err(res_err)?;
+        Ok((leaves, f))
+    }
+
+    fn check(leaves: &[Leaf], idx: &[usize]) -> PyResult<()> {
+        match idx.iter().find(|&&i| i >= leaves.len()) {
+            Some(&bad) => Err(pyo3::exceptions::PyIndexError::new_err(bad)),
+            None => Ok(()),
+        }
     }
 }
 
 #[pymethods]
-impl PyResults {
+impl PyResultDir {
     #[new]
     fn new(py: Python<'_>, path: std::path::PathBuf) -> PyResult<Self> {
-        let inner = py
-            .detach(|| psfkit_results::Results::open(&path))
-            .map_err(res_err)?;
-        Ok(PyResults { inner })
+        let inner = py.detach(|| ResultDir::open(&path)).map_err(res_err)?;
+        Ok(PyResultDir {
+            inner: Arc::new(inner),
+        })
     }
 
     #[getter]
@@ -500,193 +628,192 @@ impl PyResults {
         self.inner.warnings()
     }
 
-    /// [(name, analysis_type, [param names], n_leaves)] in file order.
-    /// Leaf counts are as listed in the logFiles (missing files show up in `leaves()`).
-    fn analyses(&self, py: Python<'_>) -> PyResult<Vec<AnalysisRow>> {
-        let a = py.detach(|| self.inner.analyses()).map_err(res_err)?;
+    #[getter]
+    fn is_single_file(&self) -> bool {
+        self.inner.is_single_file()
+    }
+
+    /// [(label, analysis_type, [param names], n_leaves)] in file order; labels are the short
+    /// analysis names (`tran1`) unless two families share one.
+    fn results(&self, py: Python<'_>) -> PyResult<Vec<ResultRow>> {
+        let a = py.detach(|| self.inner.results()).map_err(res_err)?;
         Ok(a.into_iter()
-            .map(|a| (a.name, a.analysis_type, a.params, a.leaves))
+            .map(|a| (a.label, a.analysis_type, a.params, a.leaves))
             .collect())
     }
 
-    /// Full analysis name for a (possibly suffix) name.
-    fn resolve(&self, analysis: &str) -> PyResult<String> {
-        self.inner.resolve(analysis).map_err(res_err)
+    /// Full result (family) name for a label or (possibly suffix) name.
+    fn resolve(&self, result: &str) -> PyResult<String> {
+        self.inner.resolve(result).map_err(res_err)
     }
 
     /// Parameter columns + `leaf` (logFile entry) + `path`, one row per leaf.
-    fn leaf_table(&self, analysis: &str) -> PyResult<PyRecordBatch> {
-        use std::sync::Arc;
-        let leaves = self.leaves(analysis)?;
+    fn leaf_table(&self, result: &str) -> PyResult<PyRecordBatch> {
+        use arrow_array::{ArrayRef, Float64Array, RecordBatch, StringArray};
+        let leaves = self.leaves(result)?;
         let names: Vec<&str> = leaves.iter().map(|l| l.name.as_str()).collect();
         let paths: Vec<String> = leaves
             .iter()
             .map(|l| l.path.display().to_string())
             .collect();
-        let base = arrow_array::RecordBatch::try_from_iter([
-            (
-                "leaf",
-                Arc::new(arrow_array::StringArray::from(names)) as arrow_array::ArrayRef,
-            ),
-            (
-                "path",
-                Arc::new(arrow_array::StringArray::from(paths)) as arrow_array::ArrayRef,
-            ),
-        ])
-        .map_err(arrow_err)?;
-        // parameter columns: same names for every leaf of an analysis
-        let Some(first) = leaves.first() else {
-            return Ok(PyRecordBatch::new(base));
-        };
-        let mut fields = Vec::new();
-        let mut cols: Vec<arrow_array::ArrayRef> = Vec::new();
-        for (k, (name, v0)) in first.params.iter().enumerate() {
-            let col: arrow_array::ArrayRef = match v0 {
-                psfkit_results::Param::Float(_) => Arc::new(arrow_array::Float64Array::from(
-                    leaves
-                        .iter()
-                        .map(|l| l.params.get(k).and_then(|p| p.1.as_f64()))
-                        .collect::<Vec<_>>(),
-                )),
-                psfkit_results::Param::Str(_) => Arc::new(arrow_array::StringArray::from(
-                    leaves
-                        .iter()
-                        .map(|l| match l.params.get(k) {
-                            Some((_, psfkit_results::Param::Str(s))) => Some(s.clone()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>(),
-                )),
-            };
-            fields.push(arrow_schema::Field::new(
-                name,
-                col.data_type().clone(),
-                true,
-            ));
-            cols.push(col);
+        let mut cols: Vec<(String, ArrayRef)> = Vec::new();
+        // parameter columns: same names for every leaf of a result
+        if let Some(first) = leaves.first() {
+            for (k, (name, v0)) in first.params.iter().enumerate() {
+                let col: ArrayRef = match v0 {
+                    psfkit_results::Param::Float(_) => Arc::new(Float64Array::from(
+                        leaves
+                            .iter()
+                            .map(|l| l.params.get(k).and_then(|p| p.1.as_f64()))
+                            .collect::<Vec<_>>(),
+                    )),
+                    psfkit_results::Param::Str(_) => Arc::new(StringArray::from(
+                        leaves
+                            .iter()
+                            .map(|l| match l.params.get(k) {
+                                Some((_, psfkit_results::Param::Str(s))) => Some(s.clone()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>(),
+                    )),
+                };
+                cols.push((name.clone(), col));
+            }
         }
-        fields.extend(base.schema().fields().iter().map(|f| f.as_ref().clone()));
-        cols.extend(base.columns().iter().cloned());
-        let b =
-            arrow_array::RecordBatch::try_new(Arc::new(arrow_schema::Schema::new(fields)), cols)
-                .map_err(arrow_err)?;
+        cols.push(("leaf".into(), Arc::new(StringArray::from(names))));
+        cols.push(("path".into(), Arc::new(StringArray::from(paths))));
+        let b = RecordBatch::try_from_iter(cols).map_err(arrow_err)?;
         Ok(PyRecordBatch::new(b))
     }
 
-    /// Empty batch with the output schema (params + sweep + traces), from the first leaf.
-    #[pyo3(signature = (analysis, names=None))]
-    fn schema(&self, analysis: &str, names: Option<Vec<String>>) -> PyResult<PyRecordBatch> {
-        let leaves = self.leaves(analysis)?;
-        let leaf = leaves
-            .first()
-            .ok_or_else(|| PsfError::new_err("analysis has no leaves"))?;
+    /// Empty batch with the wide output schema (params + sweep + traces), from the first leaf.
+    #[pyo3(signature = (result, names=None))]
+    fn schema(&self, result: &str, names: Option<Vec<String>>) -> PyResult<PyRecordBatch> {
+        let (leaves, f) = self.first(result)?;
         let names: Option<Vec<&str>> = names
             .as_ref()
             .map(|n| n.iter().map(String::as_str).collect());
-        let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
-        let b = if f.is_swept() {
-            psfkit_arrow::swept_schema(&f, names.as_deref()).map_err(arrow_err)?
-        } else {
-            let b =
-                psfkit_arrow::values_to_record_batch(&f, names.as_deref()).map_err(arrow_err)?;
-            b.slice(0, 0)
-        };
+        let b = file_schema(&f, names.as_deref())?;
         Ok(PyRecordBatch::new(
-            with_params(&leaf.params, b).map_err(arrow_err)?,
+            with_params(&leaves[0].params, b).map_err(arrow_err)?,
         ))
-    }
-
-    /// Sweep variable of the leaf files (e.g. "time"), None if they are not swept.
-    fn sweep_name(&self, analysis: &str) -> PyResult<Option<String>> {
-        let leaves = self.leaves(analysis)?;
-        let Some(leaf) = leaves.first() else {
-            return Ok(None);
-        };
-        let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
-        Ok(f.sweeps().first().map(|s| s.name.clone()))
-    }
-
-    /// Reads the given leaves (indices into leaf_table) in parallel; one batch per leaf.
-    #[pyo3(signature = (analysis, indices, names=None))]
-    fn read_leaves(
-        &self,
-        py: Python<'_>,
-        analysis: &str,
-        indices: Vec<usize>,
-        names: Option<Vec<String>>,
-    ) -> PyResult<Vec<PyRecordBatch>> {
-        use rayon::prelude::*;
-        let leaves = self.leaves(analysis)?;
-        if let Some(&bad) = indices.iter().find(|&&i| i >= leaves.len()) {
-            return Err(pyo3::exceptions::PyIndexError::new_err(bad));
-        }
-        let names: Option<Vec<&str>> = names
-            .as_ref()
-            .map(|n| n.iter().map(String::as_str).collect());
-        let batches = py.detach(|| {
-            indices
-                .par_iter()
-                .map(|&i| leaf_batch(&leaves[i], names.as_deref()))
-                .collect::<PyResult<Vec<_>>>()
-        })?;
-        Ok(batches.into_iter().map(PyRecordBatch::new).collect())
-    }
-
-    /// Signal names of the first leaf (only traces with member `field`, if given).
-    #[pyo3(signature = (analysis, field=None))]
-    fn signal_names(&self, analysis: &str, field: Option<&str>) -> PyResult<Vec<String>> {
-        let leaves = self.leaves(analysis)?;
-        let Some(leaf) = leaves.first() else {
-            return Ok(Vec::new());
-        };
-        let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
-        Ok(match field {
-            Some(fl) => with_field(&f, fl).into_iter().map(String::from).collect(),
-            None => f.traces().iter().map(|t| t.name.clone()).collect(),
-        })
     }
 
     /// Empty batch with the long schema (`[params..., sweep, signal, value]`) from the first leaf.
-    #[pyo3(signature = (analysis, field=None))]
-    fn long_schema(&self, analysis: &str, field: Option<&str>) -> PyResult<PyRecordBatch> {
-        let leaves = self.leaves(analysis)?;
-        let leaf = leaves
-            .first()
-            .ok_or_else(|| PsfError::new_err("analysis has no leaves"))?;
-        let f = psfkit::PsfFile::open(&leaf.path).map_err(err)?;
+    #[pyo3(signature = (result, field=None))]
+    fn long_schema(&self, result: &str, field: Option<&str>) -> PyResult<PyRecordBatch> {
+        let (leaves, f) = self.first(result)?;
         let b = long_schema_of(&f, field)?;
         Ok(PyRecordBatch::new(
-            with_params(&leaf.params, b).map_err(arrow_err)?,
+            with_params(&leaves[0].params, b).map_err(arrow_err)?,
         ))
     }
 
-    /// Long batches for `jobs` = [(leaf index, signal names or None for all)], read in parallel.
-    #[pyo3(signature = (analysis, jobs, field=None))]
-    fn read_leaves_long(
+    /// Signal names of the first leaf (only traces with member `field`, if given; values of
+    /// non-swept files).
+    #[pyo3(signature = (result, field=None))]
+    fn signal_names(&self, result: &str, field: Option<&str>) -> PyResult<Vec<String>> {
+        let (_, f) = self.first(result)?;
+        Ok(match field {
+            Some(fl) => with_field(&f, fl).into_iter().map(String::from).collect(),
+            None => f
+                .names()
+                .map_err(err)?
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        })
+    }
+
+    /// Sweep variable of the leaves (e.g. "time"), None if they are not swept.
+    fn sweep_name(&self, result: &str) -> PyResult<Option<String>> {
+        let (_, f) = self.first(result)?;
+        Ok(f.sweeps().first().map(|s| s.name.clone()))
+    }
+
+    /// Path of a leaf (index into leaf_table).
+    fn leaf_path(&self, result: &str, leaf: usize) -> PyResult<String> {
+        let leaves = self.leaves(result)?;
+        Self::check(&leaves, &[leaf])?;
+        Ok(leaves[leaf].path.display().to_string())
+    }
+
+    /// Wide batches of the given leaves (indices into leaf_table); `names` selects traces
+    /// (all if None). Each iteration step reads `batch` leaves in parallel.
+    #[pyo3(signature = (result, leaves, names=None, batch=None))]
+    fn scan(
         &self,
-        py: Python<'_>,
-        analysis: &str,
+        result: &str,
+        leaves: Vec<usize>,
+        names: Option<Vec<String>>,
+        batch: Option<usize>,
+    ) -> PyResult<BatchIter> {
+        let all = self.leaves(result)?;
+        Self::check(&all, &leaves)?;
+        Ok(BatchIter {
+            dir: self.inner.clone(),
+            leaves: all,
+            names,
+            field: None,
+            jobs: Mutex::new(leaves.into_iter().map(Job::Wide).collect()),
+            step: batch.unwrap_or_else(rayon::current_num_threads).max(1),
+        })
+    }
+
+    /// Long batches for `jobs` = [(leaf index, signal names or None for all)]. Jobs with more
+    /// signals than fit in about `chunk_rows` rows (signals x sweep points) are split, so memory
+    /// stays bounded for long transients. A single file is read one chunk at a time; leaves of
+    /// a directory `batch` at a time in parallel.
+    #[pyo3(signature = (result, jobs, field=None, chunk_rows=1 << 22, batch=None))]
+    fn scan_long(
+        &self,
+        result: &str,
         jobs: Vec<(usize, Option<Vec<String>>)>,
         field: Option<String>,
-    ) -> PyResult<Vec<PyRecordBatch>> {
-        use rayon::prelude::*;
-        let leaves = self.leaves(analysis)?;
-        if let Some((bad, _)) = jobs.iter().find(|(i, _)| *i >= leaves.len()) {
-            return Err(pyo3::exceptions::PyIndexError::new_err(*bad));
+        chunk_rows: usize,
+        batch: Option<usize>,
+    ) -> PyResult<BatchIter> {
+        let (all, f) = self.first(result)?;
+        let idx: Vec<usize> = jobs.iter().map(|j| j.0).collect();
+        Self::check(&all, &idx)?;
+        // PSFXL stubs may lack a point count; assume long transients
+        let points = sweep_points(&f).unwrap_or(if f.is_psfxl_stub() { 1 << 20 } else { 1 });
+        let chunk = (chunk_rows / points).max(1);
+        let names: Vec<String> = match field.as_deref() {
+            Some(fl) => with_field(&f, fl).into_iter().map(String::from).collect(),
+            None => f.traces().iter().map(|t| t.name.clone()).collect(),
+        };
+        let mut queue = VecDeque::new();
+        for (i, sel) in jobs {
+            let full = sel.as_ref().unwrap_or(&names);
+            if full.len() <= chunk {
+                queue.push_back(Job::Long(i, sel));
+            } else {
+                for c in full.chunks(chunk) {
+                    queue.push_back(Job::Long(i, Some(c.to_vec())));
+                }
+            }
         }
-        let batches = py.detach(|| {
-            jobs.par_iter()
-                .map(|(i, names)| leaf_batch_long(&leaves[*i], names.as_deref(), field.as_deref()))
-                .collect::<PyResult<Vec<_>>>()
-        })?;
-        Ok(batches.into_iter().map(PyRecordBatch::new).collect())
+        let step = if self.inner.is_single_file() {
+            1
+        } else {
+            batch.unwrap_or_else(rayon::current_num_threads).max(1)
+        };
+        Ok(BatchIter {
+            dir: self.inner.clone(),
+            leaves: all,
+            names: None,
+            field,
+            jobs: Mutex::new(queue),
+            step,
+        })
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "Results({:?}, analyses={})",
+            "ResultDir({:?}, results={})",
             self.root(),
-            self.inner.analyses().map_or(0, |a| a.len())
+            self.inner.results().map_or(0, |a| a.len())
         )
     }
 }
@@ -694,7 +821,8 @@ impl PyResults {
 #[pymodule]
 fn _polars_psf(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyPsfFile>()?;
-    m.add_class::<PyResults>()?;
+    m.add_class::<PyResultDir>()?;
+    m.add_class::<BatchIter>()?;
     m.add("PsfError", m.py().get_type::<PsfError>())?;
     Ok(())
 }

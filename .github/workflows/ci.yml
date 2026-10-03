@@ -108,6 +108,23 @@ jobs:
           python -m pip install polars
       - name: pytest
         run: python -m pytest -q python/tests
+      - name: examples
+        shell: bash
+        run: |
+          python python/examples/post_processing.py
+          python python/examples/corner_report.py
+          python python/examples/noise_queries.py testdata/pycircuit/psf/pnoise0.pnoise
+
+  python-lint:
+    name: Python lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: ruff
+        run: uvx ruff check python
+      - name: marimo check
+        run: uvx marimo check python/examples/tour.py python/examples/waveform.py
 
   sdist:
     runs-on: ubuntu-latest

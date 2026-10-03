@@ -1,6 +1,6 @@
 [package]
 name = "psfkit-arrow"
-description = "Convert PSF simulation data (psf crate) to Apache Arrow arrays"
+description = "Convert PSF simulation data (psfkit crate) to Apache Arrow arrays"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
