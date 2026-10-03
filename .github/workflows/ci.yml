@@ -104,7 +104,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest numpy pyarrow
-          python -m pip install "polars-waveform @ git+https://git.johome.net/proj/polars-waveform.git@v0.1.0"
+          python -m pip install "polars-waveform @ git+https://github.com/henjo/polars-waveform@v0.1.0"
           python -m pip install --no-index --find-links dist polars-psf --no-deps
           python -m pip install polars
       - name: pytest
@@ -159,3 +159,26 @@ jobs:
           ls -l dist
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --generate-notes
+
+  pypi:
+    name: Publish to PyPI
+    # polars-waveform must be on PyPI first (polars-psf requires it)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/polars-psf
+    permissions:
+      id-token: write # trusted publishing, no API token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -8,15 +8,12 @@ the data you query is read. A libpsf-compatible numpy API is included for existi
 polars-psf is an independent community project, not affiliated with or endorsed by the Polars project or by
 Cadence Design Systems, Inc. Cadence® and Spectre® are registered trademarks of Cadence Design Systems, Inc.
 
-Prebuilt wheels (Linux x86_64/aarch64, macOS, Windows; Python >= 3.11) are attached to
-[GitHub Releases](https://github.com/henjo/polars-psf/releases):
-
 ```sh
-pip install polars-psf --find-links https://github.com/henjo/polars-psf/releases/expanded_assets/v0.1.0
-# or: uv pip install polars-psf --find-links ...
+pip install polars-psf          # or: uv add polars-psf
 ```
 
-From source (needs a Rust toolchain): `pip install "git+https://github.com/henjo/polars-psf#subdirectory=python"`.
+Prebuilt wheels for Linux (x86_64, aarch64), macOS and Windows, Python >= 3.11. From source (needs a
+Rust toolchain): `pip install "git+https://github.com/henjo/polars-psf#subdirectory=python"`.
 
 ## Python
 
@@ -152,7 +149,7 @@ noise = pp.open("noise.pnoise")
 `mc.cross(0.5)` is a table, `mc.ymax().describe()` gives mean/std/min/max over the runs, and
 `mc - mc.mean()` subtracts each curve's own mean.
 
-More: `python/examples/corner_report.py` (a corner spec report as a script), `python/examples/post_processing.py`, and the interactive tour, a [marimo](https://marimo.io)
+More: [`python/examples/corner_report.py`](https://github.com/henjo/polars-psf/blob/master/python/examples/corner_report.py) (a corner spec report as a script), [`python/examples/post_processing.py`](https://github.com/henjo/polars-psf/blob/master/python/examples/post_processing.py), and the interactive tour, a [marimo](https://marimo.io)
 notebook: from `python/`, `uv run --group examples marimo edit examples/tour.py`.
 
 ### Lazy queries
@@ -187,7 +184,7 @@ python/examples/waveform.py`.
 ### polars-waveform
 
 `Waveform`, the measurements and `cx` live in their own pure-Python package,
-[polars-waveform](https://git.johome.net/proj/polars-waveform) (`import polars_waveform as pw`), which polars-psf depends on
+[polars-waveform](https://github.com/henjo/polars-waveform) (`import polars_waveform as pw`), which polars-psf depends on
 and re-exports. It works on any Polars data, for example lab measurements in Parquet, including
 nested channels with their own sweep (`pw.from_nested`).
 
@@ -199,7 +196,7 @@ d = libpsf.PSFDataSet("ac.ac")
 f, v = d.get_sweep_values(), d.get_signal("out")   # numpy float64 / complex128
 ```
 
-Walkthrough (transient, AC, noise structs, operating point, PSFXL): `python/examples/libpsf_compat.py`.
+Walkthrough (transient, AC, noise structs, operating point, PSFXL): [`python/examples/libpsf_compat.py`](https://github.com/henjo/polars-psf/blob/master/python/examples/libpsf_compat.py).
 
 ## Rust
 
@@ -225,14 +222,14 @@ MSRV: `psfkit`, `psfkit-results` 1.85; `psfkit-arrow` and the Python extension 1
 Everything is lazy: opening a file parses only declarations; values are decoded on request and only for the
 requested signals (non-swept values are indexed on first lookup and decoded one by one); result directories
 read parent sweep files and check data files only for the result you ask for; selective reads of transient
-files prefetch exactly the needed blocks. Performance and a comparison with libpsf: `docs/benchmarks.md`.
-File formats (psfbin, psfascii, PSFXL, result directories): `docs/format.md`.
+files prefetch exactly the needed blocks. Performance and a comparison with libpsf: [`docs/benchmarks.md`](https://github.com/henjo/polars-psf/blob/master/docs/benchmarks.md).
+File formats (psfbin, psfascii, PSFXL, result directories): [`docs/format.md`](https://github.com/henjo/polars-psf/blob/master/docs/format.md).
 
 ## Development
 
 - Dev shell: `nix develop` (Rust, Python, uv, maturin; sets `LD_LIBRARY_PATH` for manylinux wheels).
 - Rust tests: `cargo test` (golden comparisons of every psfbin file against its psfascii twin, Spectre 25.1
-  samples, truncation robustness). Test data and licenses: `testdata/README.md`.
+  samples, truncation robustness). Test data and licenses: [`testdata/README.md`](https://github.com/henjo/polars-psf/blob/master/testdata/README.md).
 - Python: `cd python && maturin build --release -o dist`, then from the repository root `pytest python/tests`
   with the wheel installed. polars-waveform is its own repository; to work on both, install a checkout
   of it in editable mode (`uv pip install -e ../polars-waveform`).

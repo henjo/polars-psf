@@ -7,9 +7,25 @@ name = "polars-psf"
 description = "Fast reader for Cadence Spectre PSF simulation results (psfbin, psfascii, PSFXL) to Polars"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
+readme = "../README.md"
 dependencies = ["polars>=1.40", "polars-waveform>=0.1"]  # polars: io plugins; tested 1.40-1.44
 dynamic = ["version"]
-classifiers = ["Programming Language :: Rust", "Programming Language :: Python :: 3"]
+keywords = ["spectre", "psf", "cadence", "simulation", "polars", "eda"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Repository = "https://github.com/henjo/polars-psf"
+Issues = "https://github.com/henjo/polars-psf/issues"
 
 [project.optional-dependencies]
 # compat (libpsf API), Waveform.to_numpy and dft()
@@ -17,8 +33,8 @@ numpy = ["numpy"]
 test = ["pytest", "numpy", "pyarrow"]
 
 [tool.uv.sources]
-# own repository; for local work on both: uv pip install -e ../../polars-waveform
-polars-waveform = { git = "ssh://git@git.johome.net:2223/proj/polars-waveform.git", tag = "v0.1.0" }
+# until polars-waveform is on PyPI; for local work on both: uv pip install -e ../../polars-waveform
+polars-waveform = { git = "https://github.com/henjo/polars-waveform", tag = "v0.1.0" }
 
 [dependency-groups]
 # marimo notebooks in examples/: uv run --group examples marimo edit examples/tour.py
@@ -28,6 +44,8 @@ examples = ["marimo", "altair>=5.4", "numpy"]
 module-name = "polars_psf._polars_psf"
 python-source = "."
 features = []
+# NFS keeps deleted-but-open files as .nfs* placeholders; never ship them
+exclude = ["polars_psf/.nfs*"]
 
 [tool.ruff]
 line-length = 120

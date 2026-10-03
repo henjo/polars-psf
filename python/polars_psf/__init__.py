@@ -20,6 +20,9 @@ Results as objects, and calculator functions (OCEAN names such as ``dB20`` are a
 >>> pp.bandwidth(r.ac1.v("n10"), 3, "low"), pp.db20(r.ac1.v("n10"))
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
+
 from . import cx
 from ._polars_psf import PsfError
 from .dataset import Dataset, Result, open, openResults
@@ -27,6 +30,11 @@ from .post import *  # noqa: F403 - Waveform and the calculator functions
 from .post import __all__ as _post_all
 
 __all__ = ["Dataset", "PsfError", "Result", "cx", "open", "openResults", "to_numpy_complex", *_post_all]
+
+try:
+    __version__ = _version("polars-psf")
+except PackageNotFoundError:  # running from a source tree without an install
+    __version__ = "0+unknown"
 
 
 def to_numpy_complex(series):

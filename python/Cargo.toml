@@ -1,6 +1,6 @@
 [package]
 name = "polars-psf-python"
-description = "Python bindings for the psf crate (PSF simulation results -> Arrow/Polars)"
+description = "Python bindings of psfkit for polars-psf (PSF simulation results -> Arrow/Polars)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
