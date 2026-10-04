@@ -92,6 +92,9 @@ pub struct ResultInfo {
     pub params: Vec<String>,
     /// Leaves listed in the logFiles (some may turn out missing in [`ResultDir::leaves`]).
     pub leaves: usize,
+    /// The simulator's description of the first leaf in its logFile (``Transient Analysis
+    /// `tran1': time = (0 s -> 5 ms)``); empty if there is none (single PSF files).
+    pub description: String,
 }
 
 /// A logFile to read, with the outer parameters of its ADE run (empty for plain Spectre).
@@ -112,6 +115,7 @@ struct Entry {
     name: String,
     atype: String,
     data_file: String,
+    description: String,
     sweep: Option<String>,
     props: psfkit::Properties,
 }
@@ -276,6 +280,7 @@ impl ResultDir {
             analysis_type: analysis_type.clone(),
             params: Vec::new(),
             leaves: 1,
+            description: String::new(),
         };
         let leaf = Leaf {
             result: name.clone(),
@@ -383,6 +388,7 @@ impl ResultDir {
                             .chain(vars.iter().cloned())
                             .collect(),
                         leaves: leaves.len(),
+                        description: t.entries[*first].description.clone(),
                     }),
                 }
             }
@@ -657,6 +663,7 @@ fn parse_log(file: &Path, outer: &[(String, Param)]) -> Result<Tree> {
             name: v.name.clone(),
             atype: s("analysisType"),
             data_file: s("dataFile"),
+            description: s("description"),
             sweep: str_list(v.value.field("sweepVariable"))
                 .first()
                 .map(|s| s.to_string()),

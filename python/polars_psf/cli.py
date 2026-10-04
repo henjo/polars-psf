@@ -38,8 +38,11 @@ def _info(args) -> int:
     for r in d.results.iter_rows(named=True):
         sweep = d.sweep_name(r["name"]) if r["leaves"] else None
         signals = len(d.names(r["name"])) if r["leaves"] else 0
-        rows.append({**r, "params": ", ".join(r["params"]), "sweep": sweep or "-", "signals": signals})
-    with pl.Config(tbl_hide_dataframe_shape=True, tbl_hide_column_data_types=True, tbl_rows=-1, fmt_str_lengths=60):
+        description = r.pop("description") or ""
+        rows.append({**r, "params": ", ".join(r["params"]), "sweep": sweep or "-", "signals": signals,
+                     "description": description})  # fmt: skip
+    with pl.Config(tbl_hide_dataframe_shape=True, tbl_hide_column_data_types=True, tbl_rows=-1, fmt_str_lengths=100,
+                   tbl_width_chars=250):  # fmt: skip
         print(pl.DataFrame(rows))
     if d.name_map is not None:
         print(f"schematic name map: {d.name_map.dir}")

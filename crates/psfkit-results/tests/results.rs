@@ -47,6 +47,10 @@ fn modern_logfile_sweeps_and_monte_carlo() {
     };
     assert_eq!(get("mysweep_ac2").params, ["R1:r", "C1:c"]);
     assert_eq!(get("mysweep_ac2").leaves, 9);
+    assert_eq!(
+        get("mysweep_ac2").description,
+        "AC Analysis `mysweep-000_mynestedsweep-000_ac2': freq = (1 Hz -> 1 MHz)"
+    );
     assert_eq!(get("mysweep_dc1").params, ["R1:r"]);
     assert_eq!(get("mymonte_tran1").params, ["iteration"]);
     assert_eq!(get("mymonte_tran1").leaves, 3);

@@ -196,7 +196,7 @@ r.netlist_name("/I0/vout"), r.schematic_name("I0.VOUT")
 ### Command line
 
 ```sh
-polars-psf info sim.raw                                  # results, parameters, sweeps, signal counts
+polars-psf info sim.raw                                  # results, parameters, sweeps, signal counts, descriptions
 polars-psf names sim.raw tran1 --grep '^n'               # signal names
 polars-psf export sim.raw out.parquet -r tran1 -s out -s /I0/vout -w temp=27   # also .csv, .ipc, .ndjson
 ```

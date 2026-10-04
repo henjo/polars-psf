@@ -456,8 +456,8 @@ fn file_schema(f: &psfkit::PsfFile, names: Option<&[&str]>) -> PyResult<arrow_ar
     b.map_err(arrow_err)
 }
 
-/// (name, analysis_type, param names, listed leaves)
-type ResultRow = (String, String, Vec<String>, usize);
+/// (name, analysis_type, param names, listed leaves, description)
+type ResultRow = (String, String, Vec<String>, usize, Option<String>);
 
 use psfkit_results::{Leaf, ResultDir};
 use std::collections::VecDeque;
@@ -633,12 +633,15 @@ impl PyResultDir {
         self.inner.is_single_file()
     }
 
-    /// [(label, analysis_type, [param names], n_leaves)] in file order; labels are the short
+    /// [(label, analysis_type, [param names], n_leaves, description)] in file order; labels are the short
     /// analysis names (`tran1`) unless two families share one.
     fn results(&self, py: Python<'_>) -> PyResult<Vec<ResultRow>> {
         let a = py.detach(|| self.inner.results()).map_err(res_err)?;
         Ok(a.into_iter()
-            .map(|a| (a.label, a.analysis_type, a.params, a.leaves))
+            .map(|a| {
+                let description = (!a.description.is_empty()).then_some(a.description);
+                (a.label, a.analysis_type, a.params, a.leaves, description)
+            })
             .collect())
     }
 

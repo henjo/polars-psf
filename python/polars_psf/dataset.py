@@ -153,7 +153,9 @@ class Dataset:
     @property
     def results(self) -> pl.DataFrame:
         """One row per analysis result: name (``tran1``; the family name when two share one),
-        analysis type, outer sweep parameters and number of leaf files."""
+        analysis type, outer sweep parameters, number of leaf files and the simulator's
+        description (``Transient Analysis `tran1': time = (0 s -> 5 ms)``; null for a single
+        PSF file)."""
         rows = self._r.results()
         return pl.DataFrame(
             {
@@ -161,8 +163,10 @@ class Dataset:
                 "type": [r[1] for r in rows],
                 "params": [r[2] for r in rows],
                 "leaves": [r[3] for r in rows],
+                "description": [r[4] for r in rows],
             },
-            schema={"name": pl.String, "type": pl.String, "params": pl.List(pl.String), "leaves": pl.UInt32},
+            schema={"name": pl.String, "type": pl.String, "params": pl.List(pl.String), "leaves": pl.UInt32,
+                    "description": pl.String},
         )
 
     def _rn(self, result: str | None) -> str:
@@ -493,6 +497,11 @@ class Result:
     def type(self) -> str:
         """Analysis type (``ac``, ``tran``, ...)."""
         return self._ds.results.filter(pl.col("name") == self.name)["type"].item()
+
+    @property
+    def description(self) -> str | None:
+        """The simulator's description (``AC Analysis `ac1': freq = (1 kHz -> 10 GHz)``)."""
+        return self._ds.results.filter(pl.col("name") == self.name)["description"].item()
 
     @property
     def params(self) -> list[str]:

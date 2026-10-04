@@ -55,6 +55,9 @@ def test_nested_ac_complex():
     sig = r.names("ac2")[0]
     df = r.scan("ac2").select("R1:r", "C1:c", "freq", pl.col(sig).cx.db20().alias("db")).collect()
     assert df.select(pl.struct("R1:r", "C1:c").n_unique()).item() == 9
+    assert r.result("ac2").description == "AC Analysis `mysweep-000_mynestedsweep-000_ac2': freq = (1 Hz -> 1 MHz)"
+    assert r.results.columns == ["name", "type", "params", "leaves", "description"]
+    assert pp.open(TD / "pycircuit/dcsweep.raw/dc1.dc").results["description"].to_list() == [None]  # single file
 
 
 def test_ade_parametric_nonswept_op():
