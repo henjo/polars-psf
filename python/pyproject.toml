@@ -35,10 +35,6 @@ polars-psf = "polars_psf.cli:main"
 numpy = ["numpy"]
 test = ["pytest", "numpy", "pyarrow"]
 
-[tool.uv.sources]
-# until polars-waveform is on PyPI; for local work on both: uv pip install -e ../../polars-waveform
-polars-waveform = { git = "https://github.com/henjo/polars-waveform", tag = "v0.1.0" }
-
 [dependency-groups]
 # marimo notebooks in examples/: uv run --group examples marimo edit examples/tour.py
 examples = ["marimo", "altair>=5.4", "numpy"]
