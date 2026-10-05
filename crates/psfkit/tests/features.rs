@@ -260,3 +260,51 @@ fn psfxl_sweep_only() {
     assert_eq!(d.sweep.len(), 65);
     assert_eq!(d.sweep.as_f64().unwrap()[64], 0.005);
 }
+
+/// psfascii transient with trace name `a` declared twice (Spectre pnoise td_ppv does this).
+const REPEATED: &str = r#"HEADER
+"PSFversion" "1.00"
+TYPE
+"V" FLOAT DOUBLE PROP( "units" "V" )
+"s" FLOAT DOUBLE PROP( "units" "s" )
+SWEEP
+"time" "s"
+TRACE
+"a" "V"
+"b" "V"
+"a" "V"
+"a#2" "V"
+"a#3" "V"
+VALUE
+"time" 0
+"a" 1
+"b" 2
+"a" 3
+"a#2" 4
+"a#3" 0
+"time" 1
+"a" 5
+"b" 6
+"a" 7
+"a#2" 8
+"a#3" 0
+END
+"#;
+
+#[test]
+fn repeated_trace_names_are_renamed() {
+    let f = PsfFile::from_bytes(REPEATED.as_bytes().to_vec()).unwrap();
+    // psfascii has no trace IDs: the position (2) is used; a#2 is taken
+    assert_eq!(f.names().unwrap(), ["a", "b", "a#2_", "a#2", "a#3"]);
+    assert_eq!(f.renamed_traces(), [(2, "a".to_owned())]);
+    let d = f.read_all().unwrap();
+    let v: Vec<Vec<f64>> = d.traces.iter().map(|t| t.1.to_f64().unwrap()).collect();
+    assert_eq!(
+        v,
+        [[1.0, 5.0], [2.0, 6.0], [3.0, 7.0], [4.0, 8.0], [0.0, 0.0]]
+    );
+    assert_eq!(
+        f.read(&["a#2_"]).unwrap().traces[0].1.to_f64().unwrap(),
+        [3.0, 7.0]
+    );
+}

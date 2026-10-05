@@ -170,3 +170,73 @@ fn logfile_path_opens_the_directory() {
     assert!(!r.is_single_file());
     assert_eq!(r.results().unwrap().len(), 2);
 }
+
+#[test]
+fn multi_output_analyses_are_separate_results() {
+    // pss + pnoise with ppv=yes: six root entries for two analyses (issue #1)
+    let dir = std::env::temp_dir().join(format!("psfkit-multi-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let entries = [
+        ("pss-td.pss", "td.pss", "pss.td.pss", "time"),
+        ("pss-fd.pss", "fd.pss", "pss.fd.pss", "freq"),
+        ("pss-fi.pss", "fi.pss", "pss.fi.pss", "freq"),
+        (
+            "pnoise-td_ppv.pnoise",
+            "td_ppv.pnoise",
+            "pnoise.td_ppv.pnoise",
+            "time",
+        ),
+        (
+            "pnoise-pnoise",
+            "pnoise",
+            "pnoise.pnoise",
+            "relative frequency",
+        ),
+        (
+            "pnoise-pm.pnoise",
+            "pm.pnoise",
+            "pnoise.pm.pnoise",
+            "relative frequency",
+        ),
+    ];
+    let mut log = String::from(
+        "HEADER\n\"PSFversion\" \"1.00\"\nTYPE\n\"analysisInst\" STRUCT(\n\"analysisType\" STRING *\n\
+         \"dataFile\" STRING *\n\"format\" STRING *\n\"parent\" STRING *\n\
+         \"sweepVariable\" ARRAY ( * ) STRING *\n\"description\" STRING *\n)\nVALUE\n",
+    );
+    for (name, atype, file, sweep) in entries {
+        log += &format!(
+            "\"{name}\" \"analysisInst\" (\n\"{atype}\"\n\"{file}\"\n\"PSF\"\n\"\"\n(\"{sweep}\")\n\"\"\n)\n"
+        );
+        std::fs::write(dir.join(file), "").unwrap();
+    }
+    log += "END\n";
+    std::fs::write(dir.join("logFile"), log).unwrap();
+
+    let r = ResultDir::open(&dir).unwrap();
+    let a = r.results().unwrap();
+    let names: Vec<_> = a.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "pss_td",
+            "pss_fd",
+            "pss_fi",
+            "pnoise_td_ppv",
+            "pnoise",
+            "pnoise_pm"
+        ]
+    );
+    assert!(a.iter().all(|a| a.leaves == 1 && a.label == a.name));
+    for (name, atype, file, _) in entries {
+        let n = &a.iter().find(|x| x.analysis_type == atype).unwrap().name;
+        let l = r.leaves(n).unwrap();
+        assert_eq!(l.len(), 1, "{n}");
+        assert_eq!(l[0].name, name);
+        assert!(l[0].path.ends_with(file));
+        assert_eq!(r.resolve(atype).unwrap(), *n); // by analysis type
+    }
+    assert_eq!(r.resolve("pm").unwrap(), "pnoise_pm");
+    assert!(r.warnings().is_empty(), "{:?}", r.warnings());
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -147,7 +147,8 @@ class Dataset:
 
     @property
     def warnings(self) -> list[str]:
-        """Missing data files, rounded parameter values and other non-fatal problems."""
+        """Missing data files, rounded parameter values, renamed repeated trace names (``name#2``)
+        and other non-fatal problems."""
         return self._r.warnings
 
     @property

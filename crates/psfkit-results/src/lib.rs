@@ -23,7 +23,7 @@
 //! rounded values in `logFile` properties are only used to match children to sweep points, or as a
 //! fallback (reported in [`ResultDir::warnings`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -68,7 +68,8 @@ impl Param {
 /// One PSF data file and the outer parameters it was simulated at.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Leaf {
-    /// Result family (root entry name without the `-type` suffix, e.g. `mysweep_ac2`).
+    /// Result family (root entry name without the `-type` suffix, e.g. `mysweep_ac2`; see
+    /// [`ResultInfo::name`]).
     pub result: String,
     /// Spectre analysis type of the data file (`dc`, `ac`, `tran`, ...).
     pub analysis_type: String,
@@ -83,7 +84,9 @@ pub struct Leaf {
 /// the logFiles only; data files are not checked).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResultInfo {
-    /// Family name (root logFile entry without `-type`, e.g. `swp_t_tran1`).
+    /// Family name (root logFile entry without `-type`, e.g. `swp_t_tran1`). Analyses with
+    /// several outputs (pss `td.pss`/`fd.pss`, pnoise `pnoise`/`pm.pnoise`) give one family
+    /// per output: `pss_td`, `pss_fd`, `pnoise`, `pnoise_pm`.
     pub name: String,
     /// Name for listings: the analysis' own name (`tran1`) when no other family shares it,
     /// otherwise [`Self::name`]. Accepted by [`ResultDir::resolve`].
@@ -144,6 +147,15 @@ fn own_name<'a>(family: &'a str, leaf: &Entry) -> &'a str {
     }
 }
 
+/// Family of a leaf of type `atype` under root family `base`: `base`, or `base_<sub>` for a
+/// `<sub>.<kind>` type when `base` has leaves of several types (`split`).
+fn leaf_family(base: &str, atype: &str, split: &HashSet<String>) -> String {
+    match atype.rsplit_once('.') {
+        Some((sub, _)) if split.contains(base) => format!("{base}_{sub}"),
+        _ => base.to_owned(),
+    }
+}
+
 impl Tree {
     fn kids(&self, name: &str) -> &[usize] {
         self.children.get(name).map(Vec::as_slice).unwrap_or(&[])
@@ -200,6 +212,8 @@ pub struct ResultDir {
     root: PathBuf,
     sources: Vec<Source>,
     trees: OnceLock<Vec<Tree>>,
+    /// Root families whose leaves have several analysis types (see [`leaf_family`]).
+    split: OnceLock<HashSet<String>>,
     families: Mutex<HashMap<String, Arc<Vec<Leaf>>>>,
     warnings: Mutex<Vec<String>>,
     /// A single PSF file opened as a one-leaf directory.
@@ -247,6 +261,7 @@ impl ResultDir {
             root: dir,
             sources,
             trees: OnceLock::new(),
+            split: OnceLock::new(),
             families: Mutex::new(HashMap::new()),
             warnings: Mutex::new(warnings),
             single: None,
@@ -293,8 +308,9 @@ impl ResultDir {
             root: path.to_owned(),
             sources: Vec::new(),
             trees: OnceLock::new(),
+            split: OnceLock::new(),
             families: Mutex::new(HashMap::new()),
-            warnings: Mutex::new(Vec::new()),
+            warnings: Mutex::new(renamed_warning(path, &f).into_iter().collect()),
             single: Some((info, Arc::new(vec![leaf]))),
             files: Mutex::new(vec![(path.to_owned(), f)]),
         })
@@ -323,6 +339,13 @@ impl ResultDir {
             files.remove(0);
         }
         files.push((path.to_owned(), f.clone()));
+        drop(files);
+        if let Some(w) = renamed_warning(path, &f) {
+            let mut warnings = self.warnings.lock().unwrap();
+            if !warnings.contains(&w) {
+                warnings.push(w);
+            }
+        }
         Ok(f)
     }
 
@@ -331,7 +354,7 @@ impl ResultDir {
     }
 
     /// Problems found so far that did not stop resolution (missing logFiles or data files,
-    /// rounded parameter values). Grows as more of the directory is resolved.
+    /// rounded parameter values, repeated trace names). Grows as more of the directory is resolved.
     pub fn warnings(&self) -> Vec<String> {
         self.warnings.lock().unwrap().clone()
     }
@@ -361,35 +384,61 @@ impl ResultDir {
         Ok(self.trees.get().expect("set above"))
     }
 
+    /// Root families with leaves of several analysis types (computed once).
+    fn split(&self) -> Result<&HashSet<String>> {
+        if let Some(s) = self.split.get() {
+            return Ok(s);
+        }
+        let mut types: HashMap<String, HashSet<&str>> = HashMap::new();
+        for t in self.trees()? {
+            for &root in t.roots() {
+                let mut leaves = Vec::new();
+                t.leaf_entries(root, &mut Vec::new(), &mut leaves, 0);
+                let set = types.entry(t.family(root)).or_default();
+                set.extend(leaves.iter().map(|(i, _)| t.entries[*i].atype.as_str()));
+            }
+        }
+        let split = types
+            .into_iter()
+            .filter(|(_, s)| s.len() > 1)
+            .map(|(f, _)| f)
+            .collect();
+        Ok(self.split.get_or_init(|| split))
+    }
+
     /// Result families in first-seen order. Parses the logFiles on first call.
     pub fn results(&self) -> Result<Vec<ResultInfo>> {
         if let Some((info, _)) = &self.single {
             return Ok(vec![info.clone()]);
         }
+        let split = self.split()?;
         let mut out: Vec<ResultInfo> = Vec::new();
         for t in self.trees()? {
             for &root in t.roots() {
                 let mut leaves = Vec::new();
                 t.leaf_entries(root, &mut Vec::new(), &mut leaves, 0);
-                let Some((first, vars)) = leaves.first() else {
-                    continue;
-                };
-                let name = t.family(root);
-                match out.iter_mut().find(|a| a.name == name) {
-                    Some(a) => a.leaves += leaves.len(),
-                    None => out.push(ResultInfo {
-                        label: own_name(&name, &t.entries[*first]).to_owned(),
+                let base = t.family(root);
+                for (i, vars) in &leaves {
+                    let e = &t.entries[*i];
+                    let name = leaf_family(&base, &e.atype, split);
+                    if let Some(a) = out.iter_mut().find(|a| a.name == name) {
+                        a.leaves += 1;
+                        continue;
+                    }
+                    let own = own_name(&base, e);
+                    out.push(ResultInfo {
+                        label: format!("{own}{}", &name[base.len()..]),
                         name,
-                        analysis_type: t.entries[*first].atype.clone(),
+                        analysis_type: e.atype.clone(),
                         params: t
                             .outer
                             .iter()
                             .map(|p| p.0.clone())
                             .chain(vars.iter().cloned())
                             .collect(),
-                        leaves: leaves.len(),
-                        description: t.entries[*first].description.clone(),
-                    }),
+                        leaves: 1,
+                        description: e.description.clone(),
+                    });
                 }
             }
         }
@@ -406,8 +455,9 @@ impl ResultDir {
         Ok(out)
     }
 
-    /// Resolves a result name: exact family name or label, or a unique family whose name ends
-    /// with `_<name>` (so `ac2` finds `mysweep_ac2`).
+    /// Resolves a result name: exact family name or label, a unique family whose name ends
+    /// with `_<name>` (so `ac2` finds `mysweep_ac2`), or a unique family of analysis type
+    /// `name` (`pm.pnoise`).
     pub fn resolve(&self, name: &str) -> Result<String> {
         if let Some((info, _)) = &self.single {
             // a single file also answers to its analysis type ("ac", "tran")
@@ -423,10 +473,19 @@ impl ResultDir {
         }
         let suffix = format!("_{name}");
         let c: Vec<String> = all
-            .into_iter()
-            .map(|a| a.name)
+            .iter()
+            .map(|a| a.name.clone())
             .filter(|n| n.ends_with(&suffix))
             .collect();
+        let c = if c.is_empty() {
+            // a unique family of that analysis type (`pm.pnoise`, `fd.pss`)
+            all.into_iter()
+                .filter(|a| a.analysis_type == name)
+                .map(|a| a.name)
+                .collect()
+        } else {
+            c
+        };
         match c.len() {
             1 => Ok(c.into_iter().next().unwrap()),
             0 => Err(Error::UnknownResult(name.to_owned())),
@@ -447,13 +506,18 @@ impl ResultDir {
         if let Some(l) = self.families.lock().unwrap().get(&name) {
             return Ok(l.clone());
         }
+        let split = self.split()?;
         let mut leaves = Vec::new();
         let mut warnings = Vec::new();
         for t in self.trees()? {
             for &root in t.roots() {
-                if t.family(root) == name {
+                let base = t.family(root);
+                if name == base || (split.contains(&base) && name.starts_with(&format!("{base}_")))
+                {
                     let mut w = Walk {
                         t,
+                        base: &base,
+                        split,
                         family: &name,
                         leaves: &mut leaves,
                         warnings: &mut warnings,
@@ -472,6 +536,9 @@ impl ResultDir {
 /// Resolution of one result family.
 struct Walk<'a> {
     t: &'a Tree,
+    /// Root family and the split families (see [`leaf_family`]).
+    base: &'a str,
+    split: &'a HashSet<String>,
     family: &'a str,
     leaves: &'a mut Vec<Leaf>,
     warnings: &'a mut Vec<String>,
@@ -492,6 +559,9 @@ impl Walk<'_> {
         if kids.is_empty() {
             if matches!(e.atype.as_str(), "sweep" | "montecarlo") {
                 return Ok(()); // sweep without results
+            }
+            if leaf_family(self.base, &e.atype, self.split) != self.family {
+                return Ok(()); // another output of a multi-output analysis
             }
             if !path.is_file() {
                 self.warnings
@@ -577,6 +647,18 @@ impl Walk<'_> {
             })
             .collect()
     }
+}
+
+/// Warning for traces renamed because the file repeats their names.
+fn renamed_warning(path: &Path, f: &PsfFile) -> Option<String> {
+    let r = f.renamed_traces();
+    let (first, orig) = r.first()?;
+    Some(format!(
+        "{}: {} repeated trace name(s) renamed (e.g. {orig:?} -> {:?})",
+        path.display(),
+        r.len(),
+        f.traces()[*first].name
+    ))
 }
 
 /// ADE `runObjFile`: tree of run objects; leaves list logFiles, outer values are in props.

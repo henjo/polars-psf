@@ -168,3 +168,21 @@ def test_contains_and_repr():
     assert "tran1" in r and "swp_t_tran1" in r and "nope" not in r
     assert repr(r).startswith("Dataset(") and "dir" in repr(r)
     assert "file" in repr(pp.open(TD / "psf-parser/binary/myac.ac"))
+
+
+def test_repeated_trace_names_scan(tmp_path):
+    # Spectre pnoise td_ppv repeats trace names (issue #2): renamed name#2, with a warning
+    p = tmp_path / "td_ppv.pnoise"
+    p.write_text(
+        'HEADER\n"PSFversion" "1.00"\nTYPE\n"V" FLOAT DOUBLE\n"s" FLOAT DOUBLE\nSWEEP\n"time" "s"\n'
+        'TRACE\n"a" "V"\n"b" "V"\n"a" "V"\nVALUE\n'
+        '"time" 0\n"a" 1\n"b" 2\n"a" 3\n"time" 1\n"a" 4\n"b" 5\n"a" 6\nEND\n'
+    )
+    d = pp.open(p)
+    assert d.names() == ["a", "b", "a#2"]
+    df = d.scan().collect()
+    assert df.columns == ["time", "a", "b", "a#2"]
+    assert df["a#2"].to_list() == [3.0, 6.0]
+    long = d.scan_long().collect()
+    assert long.height == 6
+    assert len(d.warnings) == 1 and "'a' -> 'a#2'" in d.warnings[0].replace('"', "'")

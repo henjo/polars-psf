@@ -93,6 +93,8 @@ pub struct PsfFile {
     types: Vec<TypeDef>,
     sweeps: Vec<Variable>,
     traces: Vec<Variable>,
+    /// Traces renamed because their name was taken: (trace index, name in the file).
+    renamed: Vec<(usize, String)>,
     groups: Vec<Group>,
     body: Body,
     by_name: OnceLock<HashMap<String, usize>>,
@@ -157,7 +159,7 @@ impl PsfFile {
     }
 
     fn from_data(data: Data) -> Result<PsfFile> {
-        let (format, header, types, sweeps, traces, groups, body) = if binary::sniff(&data) {
+        let (format, header, types, sweeps, mut traces, groups, body) = if binary::sniff(&data) {
             let p = binary::parse(&data)?;
             (
                 Format::Binary,
@@ -186,6 +188,7 @@ impl PsfFile {
                 msg: "neither psfbin nor psfascii".into(),
             });
         };
+        let renamed = unique_names(&mut traces);
         Ok(PsfFile {
             data,
             format,
@@ -193,6 +196,7 @@ impl PsfFile {
             types,
             sweeps,
             traces,
+            renamed,
             groups,
             body,
             by_name: OnceLock::new(),
@@ -226,6 +230,13 @@ impl PsfFile {
     /// Trace declarations, group members flattened in file order.
     pub fn traces(&self) -> &[Variable] {
         &self.traces
+    }
+
+    /// Traces whose name occurs earlier in the file (Spectre can write one name twice): they are
+    /// renamed `name#<trace id>` in [`Self::traces`] (psfascii: `name#<position>`). Pairs of (trace index, name in the
+    /// file); empty for most files.
+    pub fn renamed_traces(&self) -> &[(usize, String)] {
+        &self.renamed
     }
 
     pub fn groups(&self) -> &[Group] {
@@ -296,6 +307,7 @@ impl PsfFile {
                 types: &self.types,
                 sweeps: &self.sweeps,
                 traces: &self.traces,
+                renamed: &self.renamed,
                 groups: &self.groups,
             };
             ascii::parse_values(&self.data, at, &d)
@@ -642,4 +654,28 @@ fn mostly_resident(m: &memmap2::Mmap) -> bool {
         resident += (v & 1) as usize;
     }
     resident * 10 >= samples * 9
+}
+
+/// Renames traces whose name is taken by an earlier trace to `name#<id>` (trace ID; psfascii has
+/// none, there it is the trace's position); returns (index, original name) of the renamed ones.
+fn unique_names(traces: &mut [Variable]) -> Vec<(usize, String)> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut dups = Vec::new();
+    for (i, t) in traces.iter().enumerate() {
+        if !seen.insert(t.name.clone()) {
+            dups.push(i);
+        }
+    }
+    dups.into_iter()
+        .map(|i| {
+            let orig = traces[i].name.clone();
+            let mut name = format!("{orig}#{}", traces[i].id);
+            while seen.contains(&name) {
+                name.push('_'); // a trace already has that name (unlikely)
+            }
+            seen.insert(name.clone());
+            traces[i].name = name;
+            (i, orig)
+        })
+        .collect()
 }

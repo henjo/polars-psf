@@ -182,6 +182,8 @@ pub(crate) struct Decls<'a> {
     pub types: &'a [TypeDef],
     pub sweeps: &'a [Variable],
     pub traces: &'a [Variable],
+    /// Renamed traces: (index, name in the file); see `PsfFile::renamed_traces`.
+    pub renamed: &'a [(usize, String)],
     pub groups: &'a [Group],
 }
 
@@ -502,13 +504,18 @@ fn swept_values(lx: &mut Lexer, f: &Decls, out: &mut AsciiValues) -> Result<()> 
         .iter()
         .map(|t| Column::new(&t.dtype, 0))
         .collect::<Result<_>>()?;
-    let by_name: HashMap<&str, usize> = f
+    // name in the file -> traces (several if the file repeats a name)
+    let renamed: HashMap<usize, &str> = f.renamed.iter().map(|(i, n)| (*i, n.as_str())).collect();
+    let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, t) in f
         .traces
         .iter()
         .enumerate()
         .filter(|(_, t)| t.group.is_none())
-        .map(|(i, t)| (t.name.as_str(), i))
-        .collect();
+    {
+        let name = renamed.get(&i).copied().unwrap_or(&t.name);
+        by_name.entry(name).or_default().push(i);
+    }
     let groups: HashMap<&str, usize> = f
         .groups
         .iter()
@@ -524,7 +531,12 @@ fn swept_values(lx: &mut Lexer, f: &Decls, out: &mut AsciiValues) -> Result<()> 
         if name == sweep.name {
             let v = typed(raw_value(lx)?, &sweep.dtype);
             sweep_col.push_value(&v).map_err(|e| err(lx, e))?;
-        } else if let Some(&i) = by_name.get(name.as_str()) {
+        } else if let Some(idx) = by_name.get(name.as_str()) {
+            // a repeated name: its values come in declaration order at every point
+            let i = *idx
+                .iter()
+                .min_by_key(|&&i| cols[i].len())
+                .expect("non-empty");
             let v = typed(raw_value(lx)?, &f.traces[i].dtype);
             cols[i].push_value(&v).map_err(|e| err(lx, e))?;
         } else if let Some(&g) = groups.get(name.as_str()) {
