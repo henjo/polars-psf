@@ -28,7 +28,7 @@ import polars as pl
 from polars.io.plugins import register_io_source
 from polars_waveform import Waveform, cx
 
-from ._polars_psf import PsfFile, ResultDir
+from ._polars_psf import PsfError, PsfFile, ResultDir
 from .names import NameMap
 
 __all__ = ["Dataset", "Result", "open", "openResults"]
@@ -62,10 +62,17 @@ def _points(f: PsfFile) -> int | None:
 
 
 def _frames(batches):
-    """DataFrames from a Rust batch iterator (each step yields a list of record batches)."""
-    for step in batches:
-        for b in step:
-            yield pl.DataFrame(b)
+    """DataFrames from a Rust batch iterator (each step yields a list of record batches).
+
+    Raised as `pl.exceptions.ComputeError` (not the raw `PsfError`): some Polars versions pass an
+    io-plugin generator's exceptions through unwrapped.
+    """
+    try:
+        for step in batches:
+            for b in step:
+                yield pl.DataFrame(b)
+    except PsfError as e:
+        raise pl.exceptions.ComputeError(str(e)) from e
 
 
 def _emit(frames, predicate, with_columns, n_rows):
