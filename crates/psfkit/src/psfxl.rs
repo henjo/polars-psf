@@ -14,9 +14,10 @@ use crate::types::{PropValue, Properties};
 
 const NONE: u64 = u64::MAX;
 
-/// True if `b` starts like an ngpsf data file.
+/// True if `b` starts like an ngpsf data file. Magic is `ngpsf-` normally, `psfxl-` when
+/// `CDS_PSFXL_SERVER=1` is set (seen on Spectre 23.1.0.594.isr12).
 pub(crate) fn sniff(b: &[u8]) -> bool {
-    b.starts_with(b"\0!ngpsf-")
+    b.starts_with(b"\0!ngpsf-") || b.starts_with(b"\0!psfxl-")
 }
 
 pub(crate) fn check_header(b: &[u8]) -> Result<()> {
@@ -29,7 +30,8 @@ pub(crate) fn check_header(b: &[u8]) -> Result<()> {
         .split(':')
         .next()
         .unwrap_or("")
-        .trim_start_matches("ngpsf-");
+        .trim_start_matches("ngpsf-")
+        .trim_start_matches("psfxl-");
     if !version.starts_with("1.") {
         return Err(Error::Unsupported(format!("ngpsf version {version}")));
     }
