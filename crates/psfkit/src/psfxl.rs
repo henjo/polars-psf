@@ -139,9 +139,8 @@ fn record(b: &[u8], off: usize) -> Result<Record> {
     // literal scalar when it doesn't look like Blosc.
     let y_at = skip_pad(y_start);
     let y = if looks_like_blosc(b, y_at, npts) {
-        if let Some(ysize) = f.get(7).and_then(|s| hex(s, off).ok()).map(|v| v as usize)
-            && y_at.checked_add(ysize).is_none_or(|e| e > b.len())
-        {
+        let ysize = f.get(7).and_then(|s| hex(s, off).ok()).map(|v| v as usize);
+        if ysize.is_some_and(|ysize| y_at.checked_add(ysize).is_none_or(|e| e > b.len())) {
             return Err(Error::UnexpectedEof { offset: y_at });
         }
         YData::Compressed(y_at)
@@ -219,12 +218,7 @@ fn blosc_f64(b: &[u8], at: usize, expect: usize) -> Result<Vec<f64>> {
     let out = if typesize == 8 {
         let mut out = vec![0f64; expect];
         let n = unsafe {
-            blosc_src::blosc_decompress_ctx(
-                buf.as_ptr().cast(),
-                out.as_mut_ptr().cast(),
-                nbytes,
-                1,
-            )
+            blosc_src::blosc_decompress_ctx(buf.as_ptr().cast(), out.as_mut_ptr().cast(), nbytes, 1)
         };
         if n < 0 || n as usize != nbytes {
             return malformed(at, format!("Blosc decompression failed ({n})"));
@@ -233,12 +227,7 @@ fn blosc_f64(b: &[u8], at: usize, expect: usize) -> Result<Vec<f64>> {
     } else {
         let mut raw = vec![0f32; expect];
         let n = unsafe {
-            blosc_src::blosc_decompress_ctx(
-                buf.as_ptr().cast(),
-                raw.as_mut_ptr().cast(),
-                nbytes,
-                1,
-            )
+            blosc_src::blosc_decompress_ctx(buf.as_ptr().cast(), raw.as_mut_ptr().cast(), nbytes, 1)
         };
         if n < 0 || n as usize != nbytes {
             return malformed(at, format!("Blosc decompression failed ({n})"));
