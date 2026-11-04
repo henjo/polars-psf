@@ -16,6 +16,11 @@ run psfxl_killed    psfxl   ladder_tran_long.scs timeout -s INT 20
 run psfbinf_ac      psfbinf ladder_ac.scs
 # 4. complex signals in PSFXL (ac) - may be written as psfbin; that is also an answer
 run psfxl_ac        psfxl   ladder_ac.scs
+# 4b. PSFXL "server" mode (CDS_PSFXL_SERVER=1): data file magic `psfxl-` not `ngpsf-`, f32 values,
+# missing ysize fields, and a floating node to exercise the constant/tied-off-signal chunk
+# encoding; psfbin_server is the same netlist/values via psfbin, to diff against for correctness.
+run psfxl_server    psfxl   ladder_psfxl_server.scs env CDS_PSFXL_SERVER=1 CDS_PSFXL_FLOATY=1
+run psfbin_server   psfbin  ladder_psfxl_server.scs
 # 5. big psfbin (>2 GiB). Note: Spectre 25.1 ignored PSF_MAX_FILE_SIZE and wrote one 2.4 GB file
 run psfbin_chunked  psfbin  ladder_big_psfbin.scs env PSF_MAX_FILE_SIZE=100000000
 # 6. nested sweeps (temp x rval) around tran/ac + montecarlo, in each format

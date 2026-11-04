@@ -87,3 +87,21 @@ fn psfbinf_is_float32_and_matches() {
     let x = PsfFile::open(td("psfxl_ac/tran1.tran.tran")).unwrap();
     assert_same(&f, &x, 1e-6);
 }
+
+/// `CDS_PSFXL_SERVER=1` / `CDS_PSFXL_FLOATY=1` output (seen in the wild on Spectre 23.1): data
+/// file magic is `psfxl-` not `ngpsf-`, values are f32, and some chunk headers omit `ysize` or
+/// (for the always-zero `floating` net here) carry no Blosc buffer at all.
+#[cfg(feature = "psfxl")]
+#[test]
+fn psfxl_server_matches_psfbin() {
+    let p = td("psfxl_server/tran1.tran.tran.psfxl");
+    assert!(std::fs::read(&p).unwrap().starts_with(b"\0!psfxl-"));
+    let x = PsfFile::open(td("psfxl_server/tran1.tran.tran")).unwrap();
+    assert!(x.is_psfxl_stub() && x.is_complete());
+    let b = PsfFile::open(td("psfbin_server/tran1.tran.tran")).unwrap();
+    assert_same(&x, &b, 1e-6);
+
+    let d = x.read_all().unwrap();
+    let (_, floating) = d.traces.iter().find(|(n, _)| n == "floating").unwrap();
+    assert!(f64s(floating).iter().all(|&y| y == 0.0));
+}

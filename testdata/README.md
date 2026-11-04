@@ -20,3 +20,9 @@ directories with copies of the referenced files so the tree also checks out on W
 `psfbinf_ac/tran1.tran` and `psfxl_ac/tran1.tran.tran*` come from `samplegen/ladder_ac.scs` in two formats.
 The transient psfbin files have no end table (as written by Spectre 25.1). The encoded `ENV_VAR_*` header
 properties were overwritten with `0` characters of the same length.
+
+`psfxl_server/tran1.tran.tran*` and `psfbin_server/tran1.tran.tran` come from `samplegen/ladder_psfxl_server.scs`
+(same ladder as `ladder_ac.scs` plus a `floating` node tied through a 1TΩ resistor), run with
+`CDS_PSFXL_SERVER=1 CDS_PSFXL_FLOATY=1` and plain `psfbin` respectively. This is the `psfxl-` (not `ngpsf-`)
+magic variant: values are f32, some chunk headers omit `ysize`, and the always-zero `floating` node has no
+Blosc buffer at all (a raw constant). `ENV_VAR_*` scrubbed the same way as above.
