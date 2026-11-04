@@ -5,7 +5,7 @@ members = ["crates/psfkit", "crates/psfkit-arrow", "crates/psfkit-results", "pyt
 default-members = ["crates/psfkit", "crates/psfkit-arrow", "crates/psfkit-results"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 rust-version = "1.85"
@@ -24,6 +24,6 @@ arrow-schema = "59"
 arrow-select = "59"
 pyo3 = "0.29"
 pyo3-arrow = "0.19"
-psfkit = { path = "crates/psfkit", version = "0.1.1" }
-psfkit-arrow = { path = "crates/psfkit-arrow", version = "0.1.1" }
-psfkit-results = { path = "crates/psfkit-results", version = "0.1.1" }
+psfkit = { path = "crates/psfkit", version = "0.1.2" }
+psfkit-arrow = { path = "crates/psfkit-arrow", version = "0.1.2" }
+psfkit-results = { path = "crates/psfkit-results", version = "0.1.2" }
